@@ -8,13 +8,17 @@
 <div class="card">
   <h2 style="margin-top:0">Controller</h2>
   <div class="row">
-    <button id="pair" class="primary">Pair GameCube adapter</button>
     <label>Adapter port <select id="port"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
-    <span id="adapterState" class="muted"></span>
+    <span id="adapterState"></span>
   </div>
-  <p class="muted">The official adapter (and Mayflash in Wii U mode) needs the WinUSB driver on Windows — the same
-  <a href="https://github.com/project-slippi/Slippi-Launcher/blob/main/docs/gamecube-adapter.md" target="_blank" rel="noopener">Zadig setup Slippi uses</a>.
-  Close Dolphin/Slippi first: only one program can hold the adapter.</p>
+  <p id="adapterInput" class="muted" style="font-family:ui-monospace,monospace;white-space:pre"></p>
+  <p class="muted">Chrome can't read the GameCube adapter by itself: the adapter reports itself as a HID device, and Chrome
+  never lets a page or extension claim one. A small helper reads it instead, through the same WinUSB driver
+  <a href="https://github.com/project-slippi/Slippi-Launcher/blob/main/docs/gamecube-adapter.md" target="_blank" rel="noopener">Slippi and Dolphin set up with Zadig</a>.
+  To install the helper once, run this in PowerShell from the extension's source folder:</p>
+  <pre id="installCmd" style="white-space:pre-wrap;user-select:all"></pre>
+  <p class="muted">Only one program can hold the adapter at a time, so close Dolphin, Slippi or melee-unlocked first
+  (and Steam, if its GameCube adapter support is on). If the selected port has no controller, the first one plugged in is used.</p>
   <h3>Standard gamepad mapping</h3>
   <p class="muted">Press "remap", then press the pad button you want for each GameCube button.</p>
   <table id="mapping"></table>

@@ -1,9 +1,7 @@
 // Runs in an invisible extension-origin iframe that the content script adds to the page. It owns what
-// only the extension origin can reach — the IndexedDB character folder and the WebUSB adapter — and
-// talks to the content script over a private MessageChannel the page cannot see.
+// only the extension origin can reach (the IndexedDB character folder and the settings) and talks to the content script over a private MessageChannel the page cannot see.
 import { MSG } from '../shared/messages';
 import { listFiles } from '../shared/db';
-import { AdapterReader } from './adapter';
 
 let port: MessagePort | null = null;
 
@@ -37,11 +35,6 @@ window.addEventListener('message', (e) => {
   port = e.ports[0];
   port.start();
   sendSettings().then(() => sendFolder()).catch((err) => console.error('[mwf bridge]', err));
-  const adapter = new AdapterReader(
-    (report) => port?.postMessage({ type: MSG.adapter, report }, [report.buffer]),
-    (status) => port?.postMessage({ type: MSG.adapterStatus, status }),
-  );
-  void adapter.start();
 });
 
 // Live reload: the settings page broadcasts every override change.

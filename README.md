@@ -20,20 +20,30 @@ IndexedDB. Nothing from the disc is in this repository or ever leaves your machi
    seconds and ends with a preview where Fox animates and his sounds can be played.
 4. Go to any page and click the toolbar icon, or press **Alt+M**. Do the same again to remove him.
 
-### GameCube adapter (Zadig)
+### GameCube adapter (Zadig + helper, Windows)
 
-The official adapter, and a Mayflash adapter in Wii U mode, is read over WebUSB. On Windows it needs
-the WinUSB driver, set up the same way as for Slippi/Dolphin:
+Chrome can't read the official adapter (or a Mayflash in Wii U mode) on its own. The adapter reports
+itself as a HID device, and Chrome's WebUSB never lets a page or extension claim one ("The requested
+interface implements a protected class"). A small helper in `helper/` reads it instead, through the
+same WinUSB driver Slippi and Dolphin use, and Chrome starts it through native messaging. The helper
+is C# compiled by the PowerShell that ships with Windows, so it needs nothing else installed.
 
-1. Download [Zadig](https://zadig.akeo.ie/) and run it.
-2. Choose **Options → List All Devices**, then select **WUP-028**.
-3. Select **WinUSB** as the driver and click **Replace Driver** (or **Install Driver**).
-4. Unplug and replug the adapter.
+1. Driver: download [Zadig](https://zadig.akeo.ie/) and run it. Choose **Options → List All
+   Devices**, select **WUP-028**, pick **WinUSB** and click **Replace Driver**. If Slippi already
+   works with your adapter, this is done.
+2. Helper: from this folder, run once:
+   `powershell -ExecutionPolicy Bypass -File helper\install.ps1`
+   It works out the extension's id from `dist/`, copies the helper to
+   `%LOCALAPPDATA%\melee-web-fighter\helper` and registers it for Chrome (and Edge, Brave and
+   Chromium). If you loaded the extension from another folder, pass `-ExtensionId <id>`; the
+   settings page shows the exact command. `helper\uninstall.ps1` removes it.
+3. Reload the extension in `chrome://extensions`.
 
-Then open the extension's settings page, click **Pair GameCube adapter**, pick the adapter and choose
-your controller's port. Only one program can hold the adapter, so close Dolphin/Slippi first. On
-macOS and Linux no driver is needed (on Linux you may need a udev rule granting access to
-`057e:0337`).
+The settings page shows the adapter's state and, live, what each plugged-in controller is pressing.
+Only one program can hold the adapter at a time, so close Dolphin, Slippi or melee-unlocked first
+(and Steam, if its GameCube adapter support is on). Fox is played from the port chosen in the
+settings, or from the first port with a controller if that one is empty. If the state says the
+adapter isn't answering, unplug both of its cables and plug them back in.
 
 ## Controls
 
@@ -58,7 +68,7 @@ the ground and in the air (multishine, waveshine). Falling off the screen respaw
 
 The settings page (right-click the toolbar icon → Options) has:
 
-* adapter pairing and port, and the gamepad mapping
+* the adapter helper's status, a live input readout, the adapter port, and the gamepad mapping
 * Fox's height on the page, which sets the engine's `px_per_unit` scale
 * volume
 * a debug draw toggle (collision segments, ECB, hitboxes, input display)

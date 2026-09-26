@@ -9,9 +9,5 @@ export const MSG = {
   folderDone: 'mwf:folder-done',
   /** bridge → content: an override or setting changed; reload these paths. */
   changed: 'mwf:changed',
-  /** bridge → content: a raw 37-byte GameCube adapter report. */
-  adapter: 'mwf:adapter',
-  /** bridge → content: adapter status text for the debug display. */
-  adapterStatus: 'mwf:adapter-status',
   settings: 'mwf:settings',
 } as const;

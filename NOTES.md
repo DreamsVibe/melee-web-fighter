@@ -161,6 +161,26 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
 
 ## Decisions / deviations
 
+* GameCube adapter: native helper instead of WebUSB. The spec's WebUSB path cannot work in Chrome.
+  The WUP-028's only interface is HID class (USB class 03), and Chrome refuses `claimInterface` on
+  protected classes for every page and extension: "The requested interface implements a protected
+  class". Confirmed on the real adapter. So `helper/` holds a Chrome native messaging host.
+  * It is C# compiled at start by Windows PowerShell's `Add-Type`, so there is no binary in the repo
+    and nothing to install.
+  * It reads the adapter through WinUSB (the Zadig driver Slippi and Dolphin use): SetupAPI finds the
+    device path from the interface GUID that libwdi writes under the device's `Device Parameters`.
+  * Startup follows melee-unlocked's `gc_adapter.cpp`: reset both pipes, send Dolphin's HID
+    SET_PROTOCOL, write `0x13`, then read 37-byte reports.
+  * It reports status (`waiting`, `connected`, `silent`, `busy`, `no-driver`, ...) as JSON messages.
+  * The service worker runs it with `connectNative` while anything subscribes on the `mwf-adapter`
+    runtime port (pages with Fox on them, the settings page).
+  * Reports reach the page as port messages; the debug line shows the worker-to-page latency.
+  * The iframe/offscreen WebUSB code, the pairing button and the `offscreen` permission are gone.
+    `nativeMessaging` replaces them.
+  * An unpacked extension's id is sha256 of its UTF-16 folder path (drive letter upper-cased), first
+    32 hex digits mapped to a-p. `install.ps1` derives it the same way, and the result matches
+    Chrome's.
+
 * Validation traces: the spec asks to keep expected traces in `tests/`, but traces are produced by
   running the user's disc, so they are generated locally into `tests/expected/` (git-ignored). Only
   the input scripts and the comparison tool are committed.

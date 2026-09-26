@@ -1,6 +1,7 @@
-// Settings page: adapter pairing, mapping, display/sound, plugins, overrides (edit, toggle, zip).
+// Settings page: adapter helper status, mapping, display/sound, plugins, overrides (edit, toggle, zip).
 import { loadSettings, saveSettings, type Settings, type GamepadMapping } from '../shared/settings';
-import { ADAPTER_FILTER } from '../bridge/adapter';
+import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
+import { AdapterDecoder, BTN, emptyPad } from '../engine/pad';
 import { announceChange, deleteFiles, getFile, listFiles, putFiles, asText } from '../shared/db';
 import { mergeJson, text } from '../shared/character';
 import { readZip, writeZip } from '../shared/zip';
@@ -17,6 +18,34 @@ function download(name: string, data: Uint8Array): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Live adapter status and what each plugged-in controller is pressing, straight from the helper. */
+function watchAdapter(): void {
+  const state = $('adapterState'), input = $('adapterInput');
+  const port = chrome.runtime.connect({ name: ADAPTER_PORT });
+  const decoder = new AdapterDecoder();
+  const pad = emptyPad();
+  let lastDraw = 0;
+  port.onMessage.addListener((m: AdapterMessage) => {
+    if (m.type === 'status') {
+      state.textContent = describeAdapter(m.s, m.d);
+      state.className = m.s === 'connected' ? '' : 'muted';
+      if (m.s !== 'connected') input.textContent = '';
+      return;
+    }
+    const now = performance.now();
+    if (now - lastDraw < 50) return;
+    lastDraw = now;
+    const lines: string[] = [];
+    for (let p = 0; p < 4; p++) {
+      if (!decoder.decode(new Uint8Array(m.r), p, pad)) continue;
+      const held = Object.entries(BTN).filter(([, bit]) => pad.buttons & bit).map(([name]) => name).join(' ') || '—';
+      lines.push(`Port ${p + 1}: stick ${pad.stickX},${pad.stickY}  C ${pad.cX},${pad.cY}  L ${pad.trigL} R ${pad.trigR}  ${held}`);
+    }
+    input.textContent = lines.join('\n') || 'No controller plugged into the adapter.';
+  });
+  port.onDisconnect.addListener(() => setTimeout(watchAdapter, 1000));
+}
+
 async function init(): Promise<void> {
   settings = await loadSettings();
   const imported = await getFile('characters/fox/character.json');
@@ -28,23 +57,8 @@ async function init(): Promise<void> {
   const port = $<HTMLSelectElement>('port');
   port.value = String(settings.adapterPort);
   port.onchange = () => void saveSettings({ adapterPort: Number(port.value) });
-  const adapterState = $('adapterState');
-  const refreshAdapter = async () => {
-    if (!('usb' in navigator)) { adapterState.textContent = 'WebUSB is not available in this browser.'; return; }
-    const devs = await navigator.usb.getDevices();
-    adapterState.textContent = devs.some((d) => d.vendorId === ADAPTER_FILTER.vendorId && d.productId === ADAPTER_FILTER.productId)
-      ? 'Adapter paired.' : 'No adapter paired yet.';
-  };
-  $('pair').onclick = async () => {
-    try {
-      await navigator.usb.requestDevice({ filters: [ADAPTER_FILTER] });
-    } catch (e) {
-      adapterState.textContent = `Not paired: ${(e as Error).message}. If the adapter is plugged in but not listed, its WinUSB driver is missing (see the Zadig link).`;
-      return;
-    }
-    await refreshAdapter();
-  };
-  void refreshAdapter();
+  $('installCmd').textContent = `powershell -ExecutionPolicy Bypass -File helper\\install.ps1 -ExtensionId ${chrome.runtime.id}`;
+  watchAdapter();
   renderMapping();
 
   // --- display

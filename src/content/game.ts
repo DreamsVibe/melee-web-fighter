@@ -17,6 +17,7 @@ import { loadCharacter } from '../engine/load';
 import { AudioPlayer } from '../audio/audio';
 import { PageReactions } from './reactions';
 import { pluginsFor } from '../plugins';
+import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
 import type { Fighter } from '../engine/types';
 
 const CHAR = 'characters/fox/';
@@ -45,15 +46,15 @@ export class Game {
   private stepMs = 0;
   /** Worst per-frame stage update since the last stats line (dev builds log it). */
   private stageMaxMs = 0;
-  private relayOn = false;
-  private relayLatency = 0;
+  /** Runtime port to the service worker, which runs the adapter helper. */
+  private adapterLink: chrome.runtime.Port | null = null;
+  private adapterLatency = 0;
+  private destroyed = false;
 
   constructor() {
     this.bridge = new BridgeClient({
       onChanged: () => this.reload(),
       onSettings: () => { this.applySettings(); this.reload(); },
-      onAdapterReport: (r) => this.input.adapterReport(r),
-      onAdapterStatus: (st) => this.adapterStatus(st),
     });
   }
 
@@ -86,6 +87,7 @@ export class Game {
     this.overlay.addDisposer(() => {
       this.input.destroy(); this.debug.destroy(); this.stage?.destroy(); this.audio?.destroy(); this.reactions?.restoreAll();
     });
+    this.connectAdapter();
     if (DEV) console.log('[mwf] started');
     await this.overlay.start();
   }
@@ -126,24 +128,22 @@ export class Game {
     if (this.stage) { this.stage.opts = { minSolidPx: s.minSolidPx, minSegmentPx: s.minSegmentPx, maxSegments: s.maxSegments }; this.stage.invalidate(0); }
   }
 
-  private adapterStatus(status: string): void {
-    this.input.adapterStatus = status;
-    // The page frame cannot read the adapter (WebUSB blocked there, no permission in that frame, paired
-    // after the page loaded, or held by another tab): ask the service worker for the offscreen relay,
-    // which keeps retrying until the adapter opens.
-    if ((status === 'unsupported' || status === 'not-paired' || status === 'open-failed') && !this.relayOn) {
-      this.relayOn = true;
-      chrome.runtime.onMessage.addListener(this.relayListener);
-      void chrome.runtime.sendMessage({ type: 'mwf:relay-start' });
-    }
+  /** Subscribes to the adapter helper's reports; reconnects if the service worker restarts. */
+  private connectAdapter(): void {
+    const port = chrome.runtime.connect({ name: ADAPTER_PORT });
+    this.adapterLink = port;
+    port.onMessage.addListener((m: AdapterMessage) => {
+      if (m.type === 'report') {
+        this.input.adapterReport(new Uint8Array(m.r));
+        this.adapterLatency = Date.now() - m.t;
+      } else this.input.adapterStatus = m.s === 'connected' ? m.s : `${m.s}: ${describeAdapter(m.s, m.d)}`;
+    });
+    port.onDisconnect.addListener(() => {
+      if (this.adapterLink !== port || this.destroyed) return;
+      this.adapterLink = null;
+      setTimeout(() => { if (!this.destroyed) this.connectAdapter(); }, 1000);
+    });
   }
-
-  private readonly relayListener = (msg: { type?: string; report?: number[]; t?: number; status?: string }) => {
-    if (msg.type === 'mwf:relay-report' && msg.report) {
-      this.input.adapterReport(new Uint8Array(msg.report));
-      if (msg.t) this.relayLatency = performance.timeOrigin + performance.now() - msg.t;
-    } else if (msg.type === 'mwf:relay-status' && msg.status) this.input.adapterStatus = 'relay ' + msg.status;
-  };
 
   /** One engine step (exactly 1/60 s). */
   private step(): void {
@@ -212,7 +212,7 @@ export class Game {
         `engine step ${this.stepMs.toFixed(3)} ms · stage ${this.stage!.data.segments.length} segs, scan ${this.stage!.lastBuildMs.toFixed(1)} ms/frame`,
         `px_per_unit ${this.view.ppu.toFixed(2)} · plugins: ${e.plugins.map((p) => p.id).join(', ') || 'none'}`,
       ]);
-      this.debug.drawInput(ctx, this.pad, this.input.source, `adapter: ${this.input.adapterStatus}${this.input.adapterPort >= 0 ? ` port ${this.input.adapterPort + 1}` : ''}` + (this.relayOn ? ` (${this.relayLatency.toFixed(1)} ms)` : ''));
+      this.debug.drawInput(ctx, this.pad, this.input.source, `adapter: ${this.input.adapterStatus}${this.input.adapterPort >= 0 ? ` port ${this.input.adapterPort + 1}` : ''}` + (this.input.adapterStatus === 'connected' ? ` (${this.adapterLatency} ms)` : ''));
       this.quad!.draw(this.debug.canvas);
     }
   }
@@ -238,7 +238,9 @@ export class Game {
   destroy(): void {
     this.overlay.destroy();
     this.bridge.destroy();
-    if (this.relayOn) { chrome.runtime.onMessage.removeListener(this.relayListener); void chrome.runtime.sendMessage({ type: 'mwf:relay-stop' }); }
+    this.destroyed = true;
+    this.adapterLink?.disconnect();
+    this.adapterLink = null;
     this.gl?.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }

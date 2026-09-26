@@ -1,5 +1,6 @@
-// Service worker: toggles the overlay in the active tab and hosts the adapter relay fallback.
+// Service worker: toggles the overlay in the active tab and runs the GameCube adapter helper.
 import { MSG } from './shared/messages';
+import { ADAPTER_PORT, NATIVE_HOST, type AdapterMessage, type AdapterState } from './shared/adapter-link';
 
 async function toggle(tab?: chrome.tabs.Tab): Promise<void> {
   if (!tab?.id || !tab.url || !/^(https?|file):/.test(tab.url)) return;
@@ -24,28 +25,60 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('import.html') });
 });
 
-// ---- adapter relay fallback (offscreen document → service worker → tab) -------------------------
-const relayTabs = new Set<number>();
+// ---- GameCube adapter: the native helper reads it; subscribers get its messages -------------------
+const subscribers = new Set<chrome.runtime.Port>();
+let native: chrome.runtime.Port | null = null;
+let lastStatus: AdapterMessage = { type: 'status', s: 'starting', d: '' };
+let retryTimer = 0;
 
-async function ensureOffscreen(): Promise<void> {
-  const url = chrome.runtime.getURL('offscreen.html');
-  const existing = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT], documentUrls: [url] });
-  if (existing.length) return;
-  await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: [chrome.offscreen.Reason.WORKERS],
-    justification: 'Reads the GameCube controller adapter over WebUSB when the page frame cannot.',
+function broadcast(msg: AdapterMessage): void {
+  for (const p of subscribers) {
+    try { p.postMessage(msg); } catch { subscribers.delete(p); }
+  }
+}
+
+function setStatus(s: AdapterState, d = ''): void {
+  lastStatus = { type: 'status', s, d };
+  broadcast(lastStatus);
+}
+
+function startHelper(): void {
+  if (native || !subscribers.size) return;
+  clearTimeout(retryTimer);
+  const port = chrome.runtime.connectNative(NATIVE_HOST);
+  native = port;
+  setStatus('starting');
+  port.onMessage.addListener((m: { r?: number[]; s?: AdapterState; d?: string }) => {
+    if (m.r) broadcast({ type: 'report', r: m.r, t: Date.now() });
+    else if (m.s) setStatus(m.s, m.d ?? '');
+  });
+  port.onDisconnect.addListener(() => {
+    const err = chrome.runtime.lastError?.message ?? '';
+    if (native !== port) return;
+    native = null;
+    if (/not found/i.test(err)) setStatus('no-helper', err);
+    else if (/forbidden/i.test(err)) setStatus('helper-forbidden', err);
+    else setStatus('helper-exited', err);
+    // Installed or fixed while a page is open: try again now and then.
+    if (subscribers.size) retryTimer = setTimeout(startHelper, 3000) as unknown as number;
   });
 }
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg?.type === 'mwf:relay-start' && sender.tab?.id !== undefined) {
-    relayTabs.add(sender.tab.id);
-    void ensureOffscreen();
-  } else if (msg?.type === 'mwf:relay-stop' && sender.tab?.id !== undefined) {
-    relayTabs.delete(sender.tab.id);
-    if (!relayTabs.size) void chrome.offscreen.closeDocument().catch(() => {});
-  } else if (msg?.type === 'mwf:relay-report' || msg?.type === 'mwf:relay-status') {
-    for (const id of relayTabs) chrome.tabs.sendMessage(id, msg).catch(() => relayTabs.delete(id));
-  }
+function stopHelper(): void {
+  clearTimeout(retryTimer);
+  const port = native;
+  native = null;
+  port?.disconnect();
+  lastStatus = { type: 'status', s: 'starting', d: '' };
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== ADAPTER_PORT) return;
+  subscribers.add(port);
+  port.postMessage(lastStatus);
+  port.onDisconnect.addListener(() => {
+    subscribers.delete(port);
+    if (!subscribers.size) stopHelper();
+  });
+  startHelper();
 });

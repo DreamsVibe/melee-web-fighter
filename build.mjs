@@ -18,7 +18,6 @@ const entries = {
   import: 'src/importer/import.ts',
   bridge: 'src/bridge/bridge.ts',
   options: 'src/options/options.ts',
-  offscreen: 'src/bridge/offscreen.ts',
 };
 
 function copyStatic() {

@@ -4,8 +4,6 @@ import type { FileData } from '../shared/db';
 
 export interface BridgeEvents {
   onChanged?: (paths: string[]) => void;
-  onAdapterReport?: (report: Uint8Array) => void;
-  onAdapterStatus?: (status: string) => void;
   onSettings?: (settings: Record<string, unknown>) => void;
 }
 
@@ -18,7 +16,6 @@ export class BridgeClient {
   constructor(private events: BridgeEvents) {
     const f = document.createElement('iframe');
     f.src = chrome.runtime.getURL('bridge.html');
-    f.allow = 'usb';
     f.setAttribute('aria-hidden', 'true');
     f.tabIndex = -1;
     f.style.cssText = ['all:initial', 'position:fixed', 'width:0', 'height:0', 'border:0', 'opacity:0', 'pointer-events:none', 'left:0', 'top:0']
@@ -44,8 +41,6 @@ export class BridgeClient {
             for (const p of m.deleted ?? []) this.files.delete(p);
             this.events.onChanged?.(m.paths);
             break;
-          case MSG.adapter: this.events.onAdapterReport?.(m.report); break;
-          case MSG.adapterStatus: this.events.onAdapterStatus?.(m.status); break;
           case MSG.settings: this.settings = m.settings ?? {}; this.events.onSettings?.(this.settings); break;
         }
       };
