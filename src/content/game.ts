@@ -15,6 +15,7 @@ import { DebugLayer } from './debug';
 import { CanvasQuad } from '../render/quad';
 import { emptyPad } from '../engine/pad';
 import { withDefaults } from '../shared/settings';
+import { PageStage } from './stage';
 
 const CHAR = 'characters/fox/';
 
@@ -40,6 +41,9 @@ export class Game {
   readonly debug = new DebugLayer();
   private pad = emptyPad();
   private quad: CanvasQuad | null = null;
+  private stage: PageStage | null = null;
+  /** Fox's standing height in Melee units, measured from his idle pose. */
+  private fighterHeight = 14;
 
   constructor() {
     this.bridge = new BridgeClient({
@@ -72,8 +76,12 @@ export class Game {
     if (wait) this.anim = readAnim(bytes(wait)!);
     this.overlay.onStep = () => this.step();
     this.input.onKey = (code) => { if (code === 'F9') this.debug.setEnabled(!this.debug.enabled); };
+    this.fighterHeight = this.measureHeight() || 14;
+    const st = withDefaults(this.bridge.settings);
+    this.stage = new PageStage(this.view, { minSolidPx: st.minSolidPx, minSegmentPx: st.minSegmentPx, maxSegments: st.maxSegments });
+    this.stage.ignore.add(this.overlay.canvas);
     this.applySettings();
-    this.overlay.addDisposer(() => { this.input.destroy(); this.debug.destroy(); });
+    this.overlay.addDisposer(() => { this.input.destroy(); this.debug.destroy(); this.stage?.destroy(); });
     this.world = new Float32Array(model.joints.length * 12);
     this.scratch = new Float32Array(model.joints.length * 3);
     const [l, r, , t] = this.view.viewport();
@@ -88,6 +96,37 @@ export class Game {
     this.input.port = s.adapterPort - 1;
     this.input.mapping = s.gamepad;
     this.debug.setEnabled(s.debug || this.debug.enabled);
+    this.view.ppu = s.fighterHeightPx / this.fighterHeight;
+    if (this.stage) { this.stage.opts = { minSolidPx: s.minSolidPx, minSegmentPx: s.minSegmentPx, maxSegments: s.maxSegments }; this.stage.invalidate(0); }
+  }
+
+  /** Height of the idle pose (frame 0 of Wait1), from the skinned mesh, in Melee units. */
+  private measureHeight(): number {
+    const m = this.model!;
+    const local = new Float32Array(this.rest);
+    if (this.anim) applyAnim(this.anim, 0, local);
+    const world = new Float32Array(m.joints.length * 12), scratch = new Float32Array(m.joints.length * 3);
+    worldMatrices(m.joints, local, world, scratch);
+    let top = -Infinity, bottom = Infinity;
+    const v = m.mesh.vertices;
+    for (let i = 0; i < v.length / 8; i++) {
+      let y = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = m.mesh.weights[i * 4 + k] / 255;
+        if (!w) continue;
+        let b = m.mesh.bones[i * 4 + k];
+        const J = m.joints.length;
+        const bind = b < J;
+        if (!bind) b -= J;
+        let px = v[i * 8], py = v[i * 8 + 1], pz = v[i * 8 + 2];
+        const ib = m.joints[b].inverseBind;
+        if (bind && ib) { const x = ib[0] * px + ib[1] * py + ib[2] * pz + ib[3], yy = ib[4] * px + ib[5] * py + ib[6] * pz + ib[7], z = ib[8] * px + ib[9] * py + ib[10] * pz + ib[11]; px = x; py = yy; pz = z; }
+        const o = b * 12;
+        y += w * (world[o + 4] * px + world[o + 5] * py + world[o + 6] * pz + world[o + 7]);
+      }
+      top = Math.max(top, y); bottom = Math.min(bottom, y);
+    }
+    return (top - Math.min(0, bottom)) * (this.info?.modelScale ?? 1);
   }
 
   private relayOn = false;
@@ -109,6 +148,7 @@ export class Game {
   };
 
   private step(): void {
+    this.stage?.update();
     this.input.sample(this.pad);
     this.frame++;
   }
@@ -150,6 +190,10 @@ export class Game {
     this.renderer!.draw(this.world, this.place, this.proj);
     const ctx = this.debug.begin();
     if (ctx) {
+      if (this.stage) {
+        this.debug.drawStage(ctx, this.stage.data.segments, this.view);
+        this.debug.text(ctx, [`stage: ${this.stage.data.segments.length} segments, scan ${this.stage.lastBuildMs.toFixed(1)} ms`, `px_per_unit ${this.view.ppu.toFixed(2)} (Fox ${this.fighterHeight.toFixed(1)} u tall)`]);
+      }
       this.debug.drawInput(ctx, this.pad, this.input.source, `adapter: ${this.input.adapterStatus}` + (this.relayOn ? ` (${this.relayLatency.toFixed(1)} ms)` : ''));
       this.quad!.draw(this.debug.canvas);
     }

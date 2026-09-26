@@ -2,6 +2,8 @@
 // the renderer composites into the overlay's WebGL frame (the page gets no second canvas).
 import type { PadState } from '../engine/pad';
 import { BTN } from '../engine/pad';
+import { SegKind, type Segment } from '../engine/stagetypes';
+import type { View } from './view';
 
 export class DebugLayer {
   readonly canvas = new OffscreenCanvas(1, 1);
@@ -45,6 +47,34 @@ export class DebugLayer {
     ctx.fillStyle = '#999';
     ctx.fillRect(x0 + 150, y0 + 62, (pad.trigL / 140) * 40, 6);
     ctx.fillRect(x0 + 196, y0 + 62, (pad.trigR / 140) * 40, 6);
+    ctx.restore();
+  }
+
+  /** Platforms cyan, solids orange, ledges as dots. */
+  drawStage(ctx: OffscreenCanvasRenderingContext2D, segs: Segment[], view: View): void {
+    ctx.save();
+    ctx.lineWidth = 2;
+    for (const s of segs) {
+      const [x0, y0] = view.toClient(s.x0, s.y0), [x1, y1] = view.toClient(s.x1, s.y1);
+      ctx.strokeStyle = s.kind === SegKind.Platform ? 'rgba(0,210,230,0.9)' : 'rgba(255,140,0,0.9)';
+      if (s.kind === SegKind.Ceiling) ctx.setLineDash([4, 4]); else ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      if (s.kind === SegKind.Floor && s.ledges) {
+        ctx.fillStyle = '#ff3d7f';
+        if (s.ledges & 1) { ctx.beginPath(); ctx.arc(x0, y0, 4, 0, Math.PI * 2); ctx.fill(); }
+        if (s.ledges & 2) { ctx.beginPath(); ctx.arc(x1, y1, 4, 0, Math.PI * 2); ctx.fill(); }
+      }
+    }
+    ctx.restore();
+  }
+
+  text(ctx: OffscreenCanvasRenderingContext2D, lines: string[]): void {
+    ctx.save();
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(15,15,20,0.8)';
+    ctx.fillRect(8, 8, 330, 16 * lines.length + 8);
+    ctx.fillStyle = '#fff';
+    lines.forEach((l, i) => ctx.fillText(l, 14, 24 + 16 * i));
     ctx.restore();
   }
 
