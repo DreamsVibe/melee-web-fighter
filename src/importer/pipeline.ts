@@ -5,6 +5,8 @@ import { Archive } from './hsd';
 import { extractModel } from './model';
 import { putFiles, deletePrefix, FORMAT_VERSION, META_PATH, type FileData } from '../shared/db';
 import { writeMesh, writeSkeleton, writeTexture, type MaterialDef } from '../shared/modelfile';
+import { writeAnim } from '../shared/animfile';
+import { readActionTable, readFigatree, type ActionEntry } from './actions';
 
 export type Progress = (fraction: number, text: string) => void;
 export type Log = (line: string) => void;
@@ -36,7 +38,7 @@ const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
 /** DObjs shown by default: the high-detail lookup of the fighter's part-visibility table. */
 function hiddenParts(plfx: Archive): number[] {
-  const root = plfx.rootEndingWith('ftData' + 'Fox')[1];
+  const root = plfx.rootEndingWith('ftDataFox')[1];
   const x8 = plfx.ptr(root + 8);
   const table = plfx.ptr(x8 + 4);
   const models = plfx.u32(x8);
@@ -79,11 +81,27 @@ export function convertModel(sources: Sources, log: Log): OutFile[] {
   return files;
 }
 
+export function convertAnims(sources: Sources, actions: ActionEntry[], log: Log): OutFile[] {
+  const aj = sources.get('PlFxAJ.dat')!;
+  const done = new Set<string>();
+  const files: OutFile[] = [];
+  for (const a of actions) {
+    if (!a.anim || !a.ajSize || done.has(a.anim)) continue;
+    done.add(a.anim);
+    files.push({ path: CHAR_DIR + `anims/${a.anim}.anim`, data: writeAnim(readFigatree(aj, a.ajOffset, a.ajSize)) });
+  }
+  log(`animations: ${files.length}`);
+  return files;
+}
+
 export async function runImport(disc: Disc, progress: Progress, log: Log): Promise<{ files: number; bytes: number }> {
   const sources = await extractSources(disc, progress, log);
   progress(0.25, 'Converting the modelâ€¦');
   const plfx = new Archive(sources.get('PlFx.dat')!);
+  const actions = readActionTable(plfx);
   const files: OutFile[] = [...convertModel(sources, log)];
+  progress(0.45, 'Converting animations…');
+  files.push(...convertAnims(sources, actions, log));
   const attrs = plfx.ptr(plfx.rootEndingWith('ftDataFox')[1]);
   const character = {
     name: 'Fox',

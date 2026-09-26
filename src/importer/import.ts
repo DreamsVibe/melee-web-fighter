@@ -2,6 +2,9 @@
 import { Disc, DiscError } from './disc';
 import { runImport } from './pipeline';
 import { startPreview } from './preview';
+import { readAnim } from '../shared/animfile';
+import { applyAnim } from '../render/animator';
+import { bytes } from '../shared/character';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fileInput = $<HTMLInputElement>('file');
@@ -52,7 +55,19 @@ async function showPreview(): Promise<void> {
   const card = $<HTMLDivElement>('previewCard');
   card.hidden = false;
   try {
-    await startPreview($<HTMLCanvasElement>('preview'));
+    const preview = await startPreview($<HTMLCanvasElement>('preview'));
+    const select = $<HTMLSelectElement>('anim');
+    const names = [...preview.files.keys()].filter((p) => p.startsWith('characters/fox/anims/')).map((p) => p.slice(21, -5)).sort();
+    select.replaceChildren(...names.map((n) => new Option(n, n)));
+    const play = (name: string | null) => {
+      if (!name) { preview.setPoser(null); return; }
+      const anim = readAnim(bytes(preview.files.get(`characters/fox/anims/${name}.anim`))!);
+      preview.setPoser((f, local) => applyAnim(anim, f % anim.frameCount, local));
+    };
+    select.onchange = () => play(select.value);
+    $<HTMLButtonElement>('tpose').onclick = () => play(null);
+    // T-pose first, then the idle animation, so the user sees both.
+    setTimeout(() => { if (names.includes('Wait1')) { select.value = 'Wait1'; play('Wait1'); } }, 1500);
   } catch (err) {
     card.hidden = true;
     say(`Imported, but the preview failed: ${(err as Error).message}`, true);

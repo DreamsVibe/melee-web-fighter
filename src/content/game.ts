@@ -6,6 +6,9 @@ import { View } from './view';
 import { effectiveFiles, loadModel, type CharacterInfo } from '../shared/character';
 import { FighterRenderer, type FighterModel } from '../render/fighter';
 import { restPose, worldMatrices } from '../render/pose';
+import { applyAnim } from '../render/animator';
+import { readAnim, type AnimData } from '../shared/animfile';
+import { bytes } from '../shared/character';
 import { ortho, placement } from '../render/mat4';
 
 const CHAR = 'characters/fox/';
@@ -19,6 +22,9 @@ export class Game {
   private model: FighterModel | null = null;
   private info: CharacterInfo | null = null;
   private local: Float32Array = new Float32Array(0);
+  private rest: Float32Array = new Float32Array(0);
+  private anim: AnimData | null = null;
+  private frame = 0;
   private world = new Float32Array(0);
   private scratch = new Float32Array(0);
   private proj = new Float32Array(16);
@@ -43,7 +49,11 @@ export class Game {
     if (!gl) throw new Error('WebGL2 is not available on this page.');
     this.gl = gl;
     this.renderer = new FighterRenderer(gl, model);
-    this.local = restPose(model.joints);
+    this.rest = restPose(model.joints);
+    this.local = new Float32Array(this.rest);
+    const wait = files.get(CHAR + 'anims/Wait1.anim');
+    if (wait) this.anim = readAnim(bytes(wait)!);
+    this.overlay.onStep = () => { this.frame++; };
     this.world = new Float32Array(model.joints.length * 12);
     this.scratch = new Float32Array(model.joints.length * 3);
     const [l, r, , t] = this.view.viewport();
@@ -60,6 +70,8 @@ export class Game {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const [l, r, b, t] = this.view.viewport();
     ortho(this.proj, l, r, b, t, -100, 100);
+    this.local.set(this.rest);
+    if (this.anim) applyAnim(this.anim, this.frame % this.anim.frameCount, this.local);
     worldMatrices(this.model!.joints, this.local, this.world, this.scratch);
     placement(this.place, this.pos.x, this.pos.y, 0, Math.PI / 2, this.info!.modelScale);
     this.renderer!.draw(this.world, this.place, this.proj);
