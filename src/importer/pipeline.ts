@@ -7,6 +7,7 @@ import { putFiles, deletePrefix, FORMAT_VERSION, META_PATH, type FileData } from
 import { writeMesh, writeSkeleton, writeTexture, type MaterialDef } from '../shared/modelfile';
 import { writeAnim } from '../shared/animfile';
 import { readActionTable, readFigatree, type ActionEntry } from './actions';
+import { convertSounds } from './sounds-convert';
 
 export type Progress = (fraction: number, text: string) => void;
 export type Log = (line: string) => void;
@@ -100,8 +101,11 @@ export async function runImport(disc: Disc, progress: Progress, log: Log): Promi
   const plfx = new Archive(sources.get('PlFx.dat')!);
   const actions = readActionTable(plfx);
   const files: OutFile[] = [...convertModel(sources, log)];
-  progress(0.45, 'Converting animations�');
+  progress(0.45, 'Converting animations…');
   files.push(...convertAnims(sources, actions, log));
+  progress(0.65, 'Converting sounds…');
+  const sounds = convertSounds(sources, plfx, actions, CHAR_DIR, COMMON_DIR, log);
+  files.push(...sounds.files);
   const attrs = plfx.ptr(plfx.rootEndingWith('ftDataFox')[1]);
   const character = {
     name: 'Fox',
@@ -110,6 +114,7 @@ export async function runImport(disc: Disc, progress: Progress, log: Log): Promi
     modelScale: plfx.f32(attrs + 0x8c),
     hiddenParts: hiddenParts(plfx),
     costumes: ['default'],
+    sounds: sounds.ftSfx,
   };
   files.push({ path: CHAR_DIR + 'character.json', data: json(character) });
   files.push({ path: META_PATH, data: JSON.stringify({ formatVersion: FORMAT_VERSION, importedAt: new Date().toISOString(), disc: `${disc.gameId} rev ${disc.revision}` }) });

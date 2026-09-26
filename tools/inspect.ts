@@ -44,3 +44,48 @@ if (what === 'tracks') {
   anim.tracks.forEach((ts, j) => ts.forEach((t) => console.log('j', j, 'ch', t.channel, 'fmt', t.valueFormat.toString(16), t.slopeFormat.toString(16), 'start', t.startFrame, 'len', t.bytes.length,
     [0, 5, 20, 60].map((f) => sampleTrack(t, f)?.toFixed(3)).join(' '))));
 }
+
+if (what === 'sounds') {
+  const { readActionTable } = await import('../src/importer/actions');
+  const { reachableScripts, soundIds } = await import('../src/importer/subaction');
+  const { readSem, readSsm, soundSteps, writeSnd } = await import('../src/importer/sound');
+  const { readSnd, decodeChannel } = await import('../src/shared/snd');
+  const plfx = new Archive(load('PlFx.dat'));
+  const ids = new Map<number, string[]>();
+  for (const act of readActionTable(plfx)) {
+    if (!act.script) continue;
+    for (const cmds of reachableScripts(plfx, act.script).values()) for (const c of cmds) for (const id of soundIds(c)) {
+      if (!ids.has(id)) ids.set(id, []);
+      ids.get(id)!.push(act.anim || String(act.index));
+    }
+  }
+  const sem = readSem(load('audio_us_smash2.sem'));
+  const banks = [readSsm(load('audio_us_main.ssm')), readSsm(load('audio_us_fox.ssm'))];
+  for (const [id, users] of [...ids].sort((a, b) => a[0] - b[0])) {
+    const steps = soundSteps(sem, id);
+    const s = steps[0];
+    const bank = s ? banks.find((b) => s.fid >= b.firstFid && s.fid < b.firstFid + b.entries.length) : undefined;
+    let stats = '';
+    if (s && bank) {
+      const snd = readSnd(writeSnd(bank, bank.entries[s.fid - bank.firstFid]));
+      const pcm = decodeChannel(snd.channels[0]);
+      let peak = 0, sum = 0; for (const v of pcm) { peak = Math.max(peak, Math.abs(v)); sum += v * v; }
+      stats = `rate ${snd.sampleRate} len ${(pcm.length / snd.sampleRate).toFixed(2)}s peak ${peak.toFixed(2)} rms ${Math.sqrt(sum / pcm.length).toFixed(3)}`;
+    }
+    console.log(id, 'steps', steps.map((t) => `${t.fid}@${t.delayMs}v${t.volume}p${t.pitchCents}`).join(' '), bank ? (bank.firstFid ? 'fox' : 'main') : 'MISSING', stats, users.slice(0, 4).join(','));
+  }
+}
+
+if (what === 'script') {
+  const { readActionTable } = await import('../src/importer/actions');
+  const { reachableScripts } = await import('../src/importer/subaction');
+  const plfx = new Archive(load('PlFx.dat'));
+  for (const name of process.argv.slice(4)) {
+    const act = readActionTable(plfx).find((a) => a.anim === name || String(a.index) === name)!;
+    console.log('==', name, 'index', act.index, 'flags', act.flags.toString(16));
+    for (const [off, cmds] of reachableScripts(plfx, act.script)) {
+      console.log(' @' + off.toString(16));
+      for (const c of cmds) console.log('   op', c.op, c.words.map((w) => w.toString(16).padStart(8, '0')).join(' '));
+    }
+  }
+}

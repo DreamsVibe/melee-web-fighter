@@ -5,6 +5,7 @@ import { startPreview } from './preview';
 import { readAnim } from '../shared/animfile';
 import { applyAnim } from '../render/animator';
 import { bytes } from '../shared/character';
+import { AudioPlayer } from '../audio/audio';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fileInput = $<HTMLInputElement>('file');
@@ -65,6 +66,15 @@ async function showPreview(): Promise<void> {
       preview.setPoser((f, local) => applyAnim(anim, f % anim.frameCount, local));
     };
     select.onchange = () => play(select.value);
+    const audio = new AudioPlayer(0.8);
+    audio.load(preview.files);
+    $<HTMLDivElement>('sounds').replaceChildren(...audio.list().map(([id, def]) => {
+      const b = document.createElement('button');
+      b.textContent = def.name;
+      b.title = `sound id ${id}`;
+      b.onclick = () => audio.play(id);
+      return b;
+    }));
     $<HTMLButtonElement>('tpose').onclick = () => play(null);
     // T-pose first, then the idle animation, so the user sees both.
     setTimeout(() => { if (names.includes('Wait1')) { select.value = 'Wait1'; play('Wait1'); } }, 1500);
