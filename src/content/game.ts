@@ -33,7 +33,10 @@ export class Game {
   pos = { x: 0, y: 0 };
 
   constructor() {
-    this.bridge = new BridgeClient({});
+    this.bridge = new BridgeClient({
+      onChanged: () => this.reload(),
+      onSettings: () => this.reload(),
+    });
   }
 
   async start(): Promise<void> {
@@ -41,7 +44,7 @@ export class Game {
     if (!this.bridge.files.has(CHAR + 'character.json')) {
       throw new Error('Fox is not imported yet. Open the extension options → Import, and pick your Melee disc.');
     }
-    const files = effectiveFiles(this.bridge.files);
+    const files = this.folder();
     const { model, info } = loadModel(files, CHAR);
     this.model = model;
     this.info = info;
@@ -60,6 +63,28 @@ export class Game {
     this.pos = { x: (l + r) / 2, y: t - 20 };
     this.overlay.onRender = () => this.render();
     await this.overlay.start();
+  }
+
+  /** The character folder as the engine sees it: imports with enabled overrides merged on top. */
+  private folder() {
+    const disabled = new Set((this.bridge.settings.disabledOverrides as string[] | undefined) ?? []);
+    return effectiveFiles(this.bridge.files, disabled);
+  }
+
+  /** Live reload after an override or setting changed. */
+  private reload(): void {
+    if (!this.gl) return;
+    try {
+      const files = this.folder();
+      const { model, info } = loadModel(files, CHAR);
+      this.model = model;
+      this.info = info;
+      this.renderer = new FighterRenderer(this.gl, model);
+      const wait = files.get(CHAR + 'anims/Wait1.anim');
+      this.anim = wait ? readAnim(bytes(wait)!) : null;
+    } catch (e) {
+      this.showError(`Reload failed: ${(e as Error).message}`);
+    }
   }
 
   private render(): void {

@@ -8,6 +8,8 @@ import { writeMesh, writeSkeleton, writeTexture, type MaterialDef } from '../sha
 import { writeAnim } from '../shared/animfile';
 import { readActionTable, readFigatree, type ActionEntry } from './actions';
 import { convertSounds } from './sounds-convert';
+import { convertMoves } from './moves-convert';
+import { readAttributes, readCommon } from './data-convert';
 
 export type Progress = (fraction: number, text: string) => void;
 export type Log = (line: string) => void;
@@ -106,6 +108,15 @@ export async function runImport(disc: Disc, progress: Progress, log: Log): Promi
   progress(0.65, 'Converting sounds…');
   const sounds = convertSounds(sources, plfx, actions, CHAR_DIR, COMMON_DIR, log);
   files.push(...sounds.files);
+  progress(0.8, 'Converting moves and attributes…');
+  const { attributes, special } = readAttributes(plfx);
+  files.push({ path: CHAR_DIR + 'attributes.json', data: json({ ...attributes, special }) });
+  files.push({ path: COMMON_DIR + 'common.json', data: json(readCommon(new Archive(sources.get('PlCo.dat')!))) });
+  const soundNames = new Map<number, string>();
+  for (const f of sounds.files) if (f.path.endsWith('sounds.json')) for (const [id, d] of Object.entries(JSON.parse(f.data as string))) soundNames.set(Number(id), (d as { name: string }).name);
+  const moves = convertMoves(plfx, actions, attributes, (id) => soundNames.get(id) ?? String(id));
+  for (const m of moves) files.push({ path: CHAR_DIR + `moves/${m.name}.move`, data: m.text });
+  log(`moves: ${moves.length} scripts`);
   const attrs = plfx.ptr(plfx.rootEndingWith('ftDataFox')[1]);
   const character = {
     name: 'Fox',
@@ -115,6 +126,7 @@ export async function runImport(disc: Disc, progress: Progress, log: Log): Promi
     hiddenParts: hiddenParts(plfx),
     costumes: ['default'],
     sounds: sounds.ftSfx,
+    moves: moves.map((m) => m.name),
   };
   files.push({ path: CHAR_DIR + 'character.json', data: json(character) });
   files.push({ path: META_PATH, data: JSON.stringify({ formatVersion: FORMAT_VERSION, importedAt: new Date().toISOString(), disc: `${disc.gameId} rev ${disc.revision}` }) });

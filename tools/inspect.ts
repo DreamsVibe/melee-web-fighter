@@ -89,3 +89,11 @@ if (what === 'script') {
     }
   }
 }
+
+if (what === 'move') {
+  const { readActionTable } = await import('../src/importer/actions');
+  const { convertMoves } = await import('../src/importer/moves-convert');
+  const plfx = new Archive(load('PlFx.dat'));
+  const moves = convertMoves(plfx, readActionTable(plfx), { landingairn_lag: 15 }, (id) => String(id));
+  for (const n of process.argv.slice(4)) console.log(moves.find((m) => m.name === n)?.text);
+}
