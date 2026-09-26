@@ -164,3 +164,44 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
 * Validation traces: the spec asks to keep expected traces in `tests/`, but traces are produced by
   running the user's disc, so they are generated locally into `tests/expected/` (git-ignored). Only
   the input scripts and the comparison tool are committed.
+
+## Engine (src/engine)
+
+* `engine.ts` runs the fighter procs in the game's order: procAnim (AObj advance + script +
+  anim callback) → procInput (Fighter_procInput port: dead zones, synthetic LR/Z bits, pressed
+  edges, stick timers, B/jump/LR counters) + IASA → procUpdate (phys callback, accel into
+  velocity, position) → procMap (ECB lock countdown, pose, ECB load, coll callback).
+* `states.ts` ports every v1 state's four callbacks from `ft/kinds/ftCommon/ftCo_*.c`, including
+  quirks such as ftCo_Dash_IASA applying the reverse-friction after a dash-back (dash dance),
+  the TurnRun `mv` aliasing (walk.middle_anim_frame == turnrun.accel_mul), and KneeBend only
+  allowing up-B (so multishine is "shine on the first airborne frame": air shine zeroes the rise,
+  the air collision lands immediately, and the state keeps its frame on the ground).
+* `behaviors/shine.ts` is Fox's down special (ftfoxspeciallw.c), registered because his .move files
+  say `behavior shine`. `load.ts` builds CharacterData from the folder; nothing is Fox-specific in
+  the core except the ECB bone list and TransN index, which come from character.json.
+* Script timing (`script.ts`) is ftAction_80073240's: timer decremented by the animation rate,
+  `frame N` = N - frame_count, `wait_anim_end` waits for the animation to loop to frame 0.
+* Animation timing uses the HSD AObj rules: a new animation's first interpret does not advance,
+  loops wrap with fmod, non-looping ones stop at end_frame (that is IsFramesRemaining).
+* ECB: `collision.ts loadEcb` is mpColl_LoadECB_JObj (flags 6 in the air, 5 on the ground) over
+  the pose's bone positions, with the takeoff lock (10 frames after 8007D5D4, 5 after 8007D60C)
+  keeping the previous bottom, and mpColl_80042384's sanity fixes. Fox's bones are joints
+  41, 55, 25, 13, 7, 4 (head, hands, knees, hip), so his airborne ECB bottom sits at knee height
+  and he lands when the knees reach the floor, as in the game.
+* Line tests are ours (page geometry is flat): swept ECB-bottom vs floors (platforms only from
+  above, skipped while dropping through or holding down past fall_platform_pass_threshold),
+  side points vs walls, top vs ceilings, 6-unit sub-steps like mpColl_80043754. Edge handling
+  follows mpColl_8004ACE4: Fall mode (Dash, Run, KneeBend, Squat, Turn) falls off; Teeter mode
+  (Wait, Walk, RunBrake, Landing) stops at an edge when facing it with the stick under 0.75.
+
+### Deviations (v1)
+
+* Ottotto (teeter) is not a v1 state: where the game would enter it, Fox holds still at the edge.
+* Wait's idle restart always replays Wait1; the game sometimes picks Wait2 with its RNG, which would
+  make the engine non-deterministic.
+* Footstep/landing sounds use the "plain floor" material (the command's own sound + 0x46 thud);
+  page elements have no stage materials.
+* Steps 10–16 landed as one commit: the state machine, script interpreter, collision and the
+  page wiring (reactions, plugin hooks) depend on each other and were built and verified together.
+* IndexedDB in the test profile takes 5–10 s to open cold (even for an empty database), so the
+  folder is stored as one packed record and the bridge waits up to 30 s.

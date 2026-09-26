@@ -19,6 +19,8 @@ function isEditable(t: EventTarget | null): boolean {
 
 export class InputManager {
   private keys = new Set<string>();
+  /** Keys pressed since the last sample: a tap shorter than a frame still counts for one frame. */
+  private latched = new Set<string>();
   private adapter = new AdapterDecoder();
   private lastReport: Uint8Array | null = null;
   private lastReportAt = 0;
@@ -32,12 +34,13 @@ export class InputManager {
     if (isEditable(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code in KEY_BUTTONS || e.code in KEY_STICK || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
       this.keys.add(e.code);
+      this.latched.add(e.code);
       e.preventDefault(); // keep arrows/space from scrolling the page while Fox is on it
     }
     this.onKey?.(e.code);
   };
   private readonly up = (e: KeyboardEvent) => { this.keys.delete(e.code); };
-  private readonly blur = () => this.keys.clear();
+  private readonly blur = () => { this.keys.clear(); this.latched.clear(); };
 
   constructor() {
     window.addEventListener('keydown', this.down, true);
@@ -51,15 +54,17 @@ export class InputManager {
   }
 
   private keyboard(out: PadState): boolean {
-    if (!this.keys.size) return false;
+    const keys = this.latched.size ? new Set([...this.keys, ...this.latched]) : this.keys;
+    this.latched.clear();
+    if (!keys.size) return false;
     let x = 0, y = 0;
-    for (const k of this.keys) {
+    for (const k of keys) {
       const s = KEY_STICK[k];
       if (s) { x += s[0]; y += s[1]; }
       const b = KEY_BUTTONS[k];
       if (b) out.buttons |= b;
     }
-    const walk = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    const walk = keys.has('ShiftLeft') || keys.has('ShiftRight');
     const mag = walk ? 40 : 80;
     const len = Math.hypot(x, y) || 1;
     out.stickX = Math.round((x / len) * mag);

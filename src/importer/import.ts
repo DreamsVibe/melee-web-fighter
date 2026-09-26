@@ -56,7 +56,12 @@ async function showPreview(): Promise<void> {
   const card = $<HTMLDivElement>('previewCard');
   card.hidden = false;
   try {
-    const preview = await startPreview($<HTMLCanvasElement>('preview'));
+    // A fresh canvas per preview: the old WebGL context is released, not stacked.
+    const old = $<HTMLCanvasElement>('preview');
+    old.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+    const canvas = old.cloneNode() as HTMLCanvasElement;
+    old.replaceWith(canvas);
+    const preview = await startPreview(canvas);
     const select = $<HTMLSelectElement>('anim');
     const names = [...preview.files.keys()].filter((p) => p.startsWith('characters/fox/anims/')).map((p) => p.slice(21, -5)).sort();
     select.replaceChildren(...names.map((n) => new Option(n, n)));

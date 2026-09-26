@@ -1,0 +1,182 @@
+// Engine data types: the character data the engine runs on (built from the character folder), the
+// fighter state (the subset of the decomp's `Fighter` that v1 needs), events and plugin hooks.
+import type { AnimData } from '../shared/animfile';
+import type { Cmd } from '../shared/move';
+import type { SkeletonJoint } from '../shared/modelfile';
+import type { PadState } from './pad';
+import type { Segment, StageData } from './stagetypes';
+
+export type Named = Record<string, number>;
+
+/** A .move file compiled for the interpreter: labels resolved to command indices. */
+export interface CompiledMove {
+  name: string;
+  anim: AnimData | null;
+  animName: string | null;
+  /** Action table flags (0x80000000 root motion, 0x40000000 loop, 0x20000000 frame accumulate). */
+  animFlags: number;
+  landingLag?: number;
+  behavior?: string;
+  cmds: Cmd[];
+  /** Index of the command after each label. */
+  labels: Map<string, number>;
+}
+
+export interface CharacterData {
+  name: string;
+  attrs: Named;
+  special: Named;
+  common: Named;
+  moves: Map<string, CompiledMove>;
+  skeleton: SkeletonJoint[];
+  modelScale: number;
+  /** Joints whose positions bound the ECB (ftData +0x44), and its side offset. */
+  ecbBones: number[];
+  ecbSideOffset: number;
+  /** Joint index of TransN (root motion carrier). */
+  transN: number;
+  /** Named sound ids from the character's sound table (jump, doubleJump, ...). */
+  sfx: Named;
+  /** Sound id by name, for scripts and plugins. */
+  soundIds: Map<string, number>;
+}
+
+export const enum GA { Ground = 0, Air = 1 }
+
+export interface HitboxState {
+  active: boolean;
+  id: number;
+  group: number;
+  bone: number;
+  damage: number;
+  size: number;
+  offset: [number, number, number];
+  angle: number;
+  kbg: number;
+  bkb: number;
+  wkb: number;
+  element: number;
+  sfxLevel: number;
+  sfxKind: number;
+  /** World position this frame and last frame (hitboxes are swept capsules). */
+  pos: [number, number]; prevPos: [number, number]; fresh: boolean;
+}
+
+export interface ScriptState {
+  move: CompiledMove | null;
+  pc: number;
+  timer: number;
+  frameCount: number;
+  loopStack: Array<{ pc: number; count: number }>;
+  callStack: number[];
+}
+
+export interface Ecb { top: number; bottom: number; left: number; right: number; sideY: number }
+
+/** Input as Fighter_procInput builds it (lstick[0] current, [1] previous frame). */
+export interface FighterInput {
+  lx: number; ly: number; plx: number; ply: number;
+  cx: number; cy: number; pcx: number; pcy: number;
+  trigger: number; ptrigger: number;
+  held: number; pheld: number;
+  pressed: number; released: number;
+}
+
+export interface Fighter {
+  pos: { x: number; y: number };
+  prevPos: { x: number; y: number };
+  selfVel: { x: number; y: number };
+  selfAccel: { x: number; y: number };
+  grVel: number;
+  grAccel1: number;
+  grAccel2: number;
+  facing: number;
+  facing1: number;
+  ga: GA;
+  jumpsUsed: number;
+  fallFast: boolean;
+  motionId: number;
+  motionName: string;
+  // Animation (HSD AObj model).
+  move: CompiledMove | null;
+  animFrame: number;
+  animRate: number;
+  animEnd: number;
+  animLoop: boolean;
+  animDone: boolean;
+  animFirst: boolean;
+  frameAccum: number;
+  // Script.
+  script: ScriptState;
+  cmdVars: [number, number, number, number];
+  throwFlags: number;
+  allowInterrupt: boolean;
+  hitboxes: HitboxState[];
+  reflecting: boolean;
+  // Input and its timers.
+  input: FighterInput;
+  hasPrevInput: boolean;
+  timers: { lxTimer: number; lyTimer: number; lxSticky: number; lySticky: number; lxActivity: number; lyActivity: number; lxDuration: number; lyDuration: number; trigTimer: number };
+  counters: { a: number; aPrev: number; b: number; xy: number; lr: number; lrDigital: number; lrDigitalPrev: number; dUp: number; dDown: number; jump: number; jumpPrev: number; upB: number; upBPrev: number; downB: number; sideB: number; neutralB: number };
+  x2228_b7: number;
+  x2229_b0: number;
+  // State-specific memory (the decomp's `mv` union), one bag of named fields.
+  mv: Record<string, number>;
+  // Collision.
+  ecb: Ecb;
+  prevEcb: Ecb;
+  desiredEcb: Ecb;
+  ecbLock: number;
+  ecbLocked: boolean;
+  floor: Segment | null;
+  floorSkip: Segment | null;
+  envFlags: number;
+  lstickAngle: number;
+  /** Frames since the fighter respawned (for the respawn fall). */
+  dead: boolean;
+  /** Pose of the current animation frame (for ECB, hitboxes and rendering). */
+  local: Float32Array;
+  world: Float32Array;
+  poseDirty: boolean;
+}
+
+// Collision env flags (a subset of the game's Collide_* bits).
+export const ENV = {
+  LeftWall: 1 << 0, RightWall: 1 << 1, Ceiling: 1 << 2, Floor: 1 << 3,
+  LeftEdge: 1 << 4, RightEdge: 1 << 5, Edge: 1 << 6,
+} as const;
+
+export type EngineEvent =
+  | { type: 'sound'; id: number; volume: number; pan: number; frame: number }
+  | { type: 'land'; frame: number; lag: number; lcancel: boolean }
+  | { type: 'state'; from: string; to: string; frame: number }
+  | { type: 'ko'; frame: number }
+  | { type: 'hitbox'; hitbox: HitboxState; frame: number };
+
+/** Stable API handed to plugins and behaviors. */
+export interface EngineApi {
+  readonly fighter: Fighter;
+  readonly data: CharacterData;
+  readonly frame: number;
+  readonly stage: StageData;
+  playSound(id: number | string, volume?: number, pan?: number): void;
+  changeState(name: string, animStart?: number): void;
+  /** Floor segment under a point, if any. */
+  floorBelow(x: number, y: number, maxDistance: number): Segment | null;
+}
+
+export interface Plugin {
+  id: string;
+  /** Edit the pad before the engine reads it. */
+  input?(api: EngineApi, pad: PadState): void;
+  frameStart?(api: EngineApi): void;
+  frameEnd?(api: EngineApi): void;
+  stateEnter?(api: EngineApi, state: string): void;
+  stateExit?(api: EngineApi, state: string): void;
+  landing?(api: EngineApi, lag: number): void;
+  hitboxContact?(api: EngineApi, hitbox: HitboxState, target: unknown): void;
+  /** Called by the renderer with the debug 2D context, to draw extra things. */
+  render?(api: EngineApi, ctx: OffscreenCanvasRenderingContext2D, toClient: (x: number, y: number) => [number, number]): void;
+  /** Physics override hook: return modified attributes (e.g. gravity) for this frame. */
+  attributes?(api: EngineApi, attrs: Named): Named | void;
+}

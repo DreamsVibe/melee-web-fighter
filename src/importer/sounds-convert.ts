@@ -6,12 +6,8 @@ import { reachableScripts, soundIds } from './subaction';
 import { ftDataRoot, type ActionEntry } from './actions';
 import type { OutFile, Sources, Log } from './pipeline';
 
-/** Hit sounds by [kind * 3 + severity] (lb/lbcollision.c lbColl_803B9880). 0x83D60 = silence. */
-export const HIT_SOUNDS = [
-  0x83d60, 0x83d60, 0x83d60, 0x5b, 0x5a, 0x59, 0x58, 0x57, 0x56, 0x6f, 0x70, 0x71, 0x54, 0x54, 0x54, 0x5a, 0x59, 0xdf,
-  0xe1, 0xe1, 0xe1, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x4461b, 0x4461b, 0x4461b, 0xf1, 0xf1, 0xf1, 0x5e, 0x5d, 0x5c,
-  0x35baf, 0x35bb2, 0x35bb5, 0x83d60, 0x83d60, 0x20d,
-];
+export { HIT_SOUNDS } from '../shared/hitsounds';
+import { HIT_SOUNDS } from '../shared/hitsounds';
 /** Sounds the engine plays itself: fast fall (ftcommon.c), landing thud (ftaction.c 0x46). */
 export const ENGINE_SOUNDS = { fastFall: 150, landing: 70 };
 

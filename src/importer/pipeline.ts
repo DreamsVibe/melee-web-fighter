@@ -97,7 +97,8 @@ export function convertAnims(sources: Sources, actions: ActionEntry[], log: Log)
   return files;
 }
 
-export async function runImport(disc: Disc, progress: Progress, log: Log): Promise<{ files: number; bytes: number }> {
+/** Converts the disc into the character folder files (no storage). */
+export async function buildFolder(disc: Disc, progress: Progress, log: Log): Promise<OutFile[]> {
   const sources = await extractSources(disc, progress, log);
   progress(0.25, 'Converting the model…');
   const plfx = new Archive(sources.get('PlFx.dat')!);
@@ -127,10 +128,17 @@ export async function runImport(disc: Disc, progress: Progress, log: Log): Promi
     costumes: ['default'],
     sounds: sounds.ftSfx,
     moves: moves.map((m) => m.name),
+    // ECB bones and side offset (ftData +0x44), TransN joint (root motion).
+    ecb: (() => { const x44 = plfx.ptr(plfx.rootEndingWith('ftDataFox')[1] + 0x44); return { bones: [0, 1, 2, 3, 4, 5].map((i) => plfx.s16(x44 + 2 * i)), sideOffset: plfx.f32(x44 + 12) }; })(),
+    transN: 1,
   };
   files.push({ path: CHAR_DIR + 'character.json', data: json(character) });
   files.push({ path: META_PATH, data: JSON.stringify({ formatVersion: FORMAT_VERSION, importedAt: new Date().toISOString(), disc: `${disc.gameId} rev ${disc.revision}` }) });
+  return files;
+}
 
+export async function runImport(disc: Disc, progress: Progress, log: Log): Promise<{ files: number; bytes: number }> {
+  const files = await buildFolder(disc, progress, log);
   progress(0.9, 'Storing the character folder…');
   // Re-import replaces imported data; overrides/ is never touched.
   await replaceImported(files);

@@ -93,3 +93,22 @@ test('pad processing follows HSD clamp/scale and adapter report layout', async (
   dec.decode(report, 0, p);
   assert((p.stickX as number) === 100 && (p.trigL as number) === 100, 'origin not subtracted');
 });
+
+test('engine: Fox stands, full hops, lands', async (disc) => {
+  const { foxData, newEngine, pad } = await import('./sim');
+  const e = newEngine(await foxData(disc));
+  for (let i = 0; i < 10; i++) e.step(pad());
+  assert(e.fighter.motionName === 'Wait', `not waiting: ${e.fighter.motionName}`);
+  e.step(pad({ buttons: 'X' }));
+  const trace: string[] = [];
+  let peak = 0;
+  for (let i = 0; i < 80; i++) {
+    e.step(pad({ buttons: i < 10 ? 'X' : '' }));
+    peak = Math.max(peak, e.fighter.pos.y);
+    trace.push(`${e.frame} ${e.fighter.motionName} f=${e.fighter.animFrame.toFixed(1)} y=${e.fighter.pos.y.toFixed(3)} vy=${e.fighter.selfVel.y.toFixed(3)}`);
+  }
+  console.log('      ' + trace.slice(0, 6).join('\n      '));
+  console.log(`      peak ${peak.toFixed(3)}; end: ${trace[trace.length - 1]}`);
+  assert(peak > 30 && peak < 40, `full hop peak ${peak}`);
+  assert(e.fighter.motionName === 'Wait' || e.fighter.motionName === 'Landing', `did not land: ${e.fighter.motionName}`);
+}, true);
