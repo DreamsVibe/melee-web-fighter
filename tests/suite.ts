@@ -112,3 +112,21 @@ test('engine: Fox stands, full hops, lands', async (disc) => {
   assert(peak > 30 && peak < 40, `full hop peak ${peak}`);
   assert(e.fighter.motionName === 'Wait' || e.fighter.motionName === 'Landing', `did not land: ${e.fighter.motionName}`);
 }, true);
+
+test('validation: web engine matches the real game frame by frame (tests/expected)', async (disc) => {
+  const { expectedTraces, readTrace, compareTrace } = await import('./validate');
+  const { foxData } = await import('./sim');
+  const traces = expectedTraces();
+  if (!traces.length) { console.log('      no reference traces: run tests/validation/run_reference.py'); return; }
+  const data = await foxData(disc);
+  const failures: string[] = [];
+  for (const t of traces) {
+    const r = compareTrace(t.name, readTrace(t.path), data);
+    if (r.mismatches.length) {
+      const m = r.mismatches[0];
+      failures.push(`${t.name}: first mismatch at retrace ${m.retrace} in ${m.field} (game ${m.expected}, web ${m.actual})\n        ${m.context.join('\n        ')}`);
+      console.log(`      ${t.name.padEnd(12)} MISMATCH after ${r.frames} frames`);
+    } else console.log(`      ${t.name.padEnd(12)} ok, ${r.frames} frames`);
+  }
+  assert(!failures.length, failures.join('\n      '));
+}, true);

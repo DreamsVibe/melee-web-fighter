@@ -1,0 +1,32 @@
+# Menu prelude: Slippi boot -> VS Mode -> Melee -> P1 Fox, P2 Luigi (standing still) -> Final Destination.
+# Timings follow melee-unlocked's port/scripts/lcancel.txt, with the Fox and Final Destination cursor
+# moves found by probing (P1 hand 4 frames down from Mario; stage cursor 3 up, 4 right).
+300 B
+310
+380 B
+390
+460 sy=-127
+466
+500 A
+510
+580 A
+590
+700 p=2
+1000 sx=61 sy=127
+1000 p=2 sy=127
+1017
+1017 p=2
+1020 sy=-127
+1024
+1040 A
+1040 p=2 A
+1050
+1050 p=2
+1100 START
+1110
+1300 sy=100
+1303
+1308 sx=100
+1312
+1322 A
+1332

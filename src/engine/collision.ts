@@ -113,7 +113,8 @@ function findFloor(fp: Fighter, stage: StageData, px: number, py: number, accept
   for (const s of stage.segments) {
     if (s.kind !== SegKind.Floor && s.kind !== SegKind.Platform) continue;
     if (s === fp.floorSkip) continue;
-    if (!(y0 >= s.y0 - EPS && y1 <= s.y0)) continue;
+    // A move that does not go down never lands (a fighter hovering exactly at floor height stays airborne).
+    if (!(y0 >= s.y0 - EPS && y1 <= s.y0 && y1 < y0)) continue;
     const t = y0 === y1 ? 0 : (y0 - s.y0) / (y0 - y1);
     const x = x0 + (x1 - x0) * t;
     if (x < s.x0 || x > s.x1) continue;

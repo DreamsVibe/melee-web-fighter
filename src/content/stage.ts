@@ -175,7 +175,8 @@ export class PageStage {
       const r = b.fixed ? { l: b.rect.l + sx, t: b.rect.t + sy, r: b.rect.r + sx, b: b.rect.b + sy } : b.rect;
       if (r.r - r.l < minSeg) continue;
       const d = Math.abs((r.t + r.b) / 2 - cy) + Math.abs((r.l + r.r) / 2 - cx) * 0.25;
-      const x0 = v.toUnitsX(r.l), x1 = v.toUnitsX(r.r), y0 = v.toUnitsY(r.t), y1 = v.toUnitsY(r.b);
+      // float32 like the game, so a fighter integrated in float32 lines up exactly with a floor.
+      const x0 = Math.fround(v.toUnitsX(r.l)), x1 = Math.fround(v.toUnitsX(r.r)), y0 = Math.fround(v.toUnitsY(r.t)), y1 = Math.fround(v.toUnitsY(r.b));
       if (!b.solid) {
         segs.push({ kind: SegKind.Platform, x0, y0, x1, y1: y0, group: b.group, ledges: 0, d });
         continue;

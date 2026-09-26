@@ -27,7 +27,7 @@ for (const t of tests) {
     console.log(`ok    ${t.name} (${(performance.now() - t0).toFixed(0)} ms)`);
   } catch (e) {
     failed++;
-    console.log(`FAIL  ${t.name}\n      ${(e as Error).stack?.split('\n').slice(0, 4).join('\n      ')}`);
+    console.log(`FAIL  ${t.name}\n      ${(e as Error).message}\n      ${(e as Error).stack?.split('\n').slice(1, 3).join('\n      ')}`);
   }
 }
 console.log(`\n${tests.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`);

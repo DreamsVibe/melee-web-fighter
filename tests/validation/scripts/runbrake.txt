@@ -1,0 +1,6 @@
+# Run right, let go (RunBrake) short of player 2 (x = +60; fighters push each other), then run left and let go.
+200 sx=127
+228
+320 sx=-127
+352
+440

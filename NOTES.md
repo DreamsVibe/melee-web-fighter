@@ -174,8 +174,9 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
 * `states.ts` ports every v1 state's four callbacks from `ft/kinds/ftCommon/ftCo_*.c`, including
   quirks such as ftCo_Dash_IASA applying the reverse-friction after a dash-back (dash dance),
   the TurnRun `mv` aliasing (walk.middle_anim_frame == turnrun.accel_mul), and KneeBend only
-  allowing up-B (so multishine is "shine on the first airborne frame": air shine zeroes the rise,
-  the air collision lands immediately, and the state keeps its frame on the ground).
+  allowing up-B (so multishine is "shine on the first airborne frame": air shine zeroes the rise
+  and Fox stays in SpecialAirLwStart at floor height; the next jump out of the loop is a
+  double jump, as the trace of the real game shows).
 * `behaviors/shine.ts` is Fox's down special (ftfoxspeciallw.c), registered because his .move files
   say `behavior shine`. `load.ts` builds CharacterData from the folder; nothing is Fox-specific in
   the core except the ECB bone list and TransN index, which come from character.json.
@@ -193,6 +194,26 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
   side points vs walls, top vs ceilings, 6-unit sub-steps like mpColl_80043754. Edge handling
   follows mpColl_8004ACE4: Fall mode (Dash, Run, KneeBend, Squat, Turn) falls off; Teeter mode
   (Wait, Walk, RunBrake, Landing) stops at an edge when facing it with the stick under 0.75.
+
+## Validation (step 17)
+
+* melee-unlocked's `fighter-trace` branch adds `--fighter-trace <csv>` to melee_port: one row per
+  retrace with port 1's motion id, animation frame, position, self/ground velocity, facing,
+  ground/air, jumps used and the pad read that frame.
+* `tests/validation/run_reference.py --melee-unlocked C:/melee-unlocked` seeds a memory card, then
+  runs each script headless (`prelude.txt` = menus to a Fox vs Fox match on Final Destination,
+  plus the script with frames relative to retrace 1400) into `tests/expected/<name>.csv`
+  (git-ignored). `npm test` replays the same pads through the engine and compares each frame:
+  position within 0.01, velocities within 0.01, motion id and facing exact, animation frame within
+  0.001. All 14 scripts (dash dance, run brake, hops, double jump, fast fall, five aerials with
+  L-cancel, wavedash, waveland, multishine, waveshine) match for all 710 compared frames.
+* Timing: the game acts on a pad two frames after it reads it, so row R+1 = one engine step from
+  row R with the pad of row R-2. The match starts at retrace 1418 and Fox can act from 1524.
+* Final Destination's floor is y = 0.0001, x = ±85.5657. Stage coordinates must be float32
+  (the page stage rounds them too): a double 0.0001 sits just above a fighter integrated in
+  float32, and a hovering air shine then "lands".
+* Player 2 stands at x = +60 and fighters push each other (±0.3/frame), which the one-fighter
+  engine does not model: scripts keep Fox clear of them and away from ledges (no Ottotto).
 
 ### Deviations (v1)
 

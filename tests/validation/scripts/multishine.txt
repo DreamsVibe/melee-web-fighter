@@ -1,0 +1,20 @@
+# Multishine: shine, jump out of it, shine on the first airborne frame; five times.
+200 B sy=-127
+201
+204 X
+205
+207 B sy=-127
+208
+211 X
+212
+214 B sy=-127
+215
+218 X
+219
+221 B sy=-127
+222
+225 X
+226
+228 B sy=-127
+229
+260

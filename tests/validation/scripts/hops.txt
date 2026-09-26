@@ -1,0 +1,6 @@
+# Full hop (X held 10 frames), then a short hop (X for one frame).
+200 X
+210
+300 X
+301
+380
