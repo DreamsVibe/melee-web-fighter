@@ -27,6 +27,8 @@ export class InputManager {
   port = 0;
   mapping: GamepadMapping = DEFAULT_GAMEPAD;
   adapterStatus = 'waiting';
+  /** Adapter port actually read (0-3), -1 when no controller is plugged in. */
+  adapterPort = -1;
   /** Which source drove the last sample, for the debug display. */
   source = 'none';
   onKey: ((code: string) => void) | null = null;
@@ -102,7 +104,7 @@ export class InputManager {
   /** One pad for this engine step. The adapter wins when a controller is plugged into our port. */
   sample(out: PadState): PadState {
     Object.assign(out, emptyPad());
-    if (this.lastReport && performance.now() - this.lastReportAt < 500 && this.adapter.decode(this.lastReport, this.port, out)) {
+    if (this.lastReport && performance.now() - this.lastReportAt < 500 && this.adapterPad(this.lastReport, out)) {
       this.source = 'adapter';
       const kb = emptyPad();
       if (this.keyboard(kb)) out.buttons |= kb.buttons;
@@ -112,6 +114,14 @@ export class InputManager {
     if (this.keyboard(out)) { this.source = 'keyboard'; return out; }
     this.source = 'none';
     return out;
+  }
+
+  /** The selected port; if nothing is plugged in there, the first port that has a controller. */
+  private adapterPad(report: Uint8Array, out: PadState): boolean {
+    if (this.adapter.decode(report, this.port, out)) { this.adapterPort = this.port; return true; }
+    for (let p = 0; p < 4; p++) if (p !== this.port && this.adapter.decode(report, p, out)) { this.adapterPort = p; return true; }
+    this.adapterPort = -1;
+    return false;
   }
 
   destroy(): void {

@@ -14,8 +14,15 @@ export type AdapterStatus =
 export class AdapterReader {
   private device: USBDevice | null = null;
   private running = false;
+  private stopped = false;
+  private retryTimer = 0;
 
-  constructor(private onReport: (r: Uint8Array) => void, private onStatus: (s: AdapterStatus, detail?: string) => void) {}
+  /** `retry`: keep looking for the adapter (paired later, or freed by another program) until it opens. */
+  constructor(private onReport: (r: Uint8Array) => void, private onStatus: (s: AdapterStatus, detail?: string) => void, private retry = false) {}
+
+  private scheduleRetry(): void {
+    if (this.retry && !this.stopped && !this.retryTimer) this.retryTimer = setTimeout(() => { this.retryTimer = 0; void this.find(); }, 1000) as unknown as number;
+  }
 
   async start(): Promise<void> {
     if (!('usb' in navigator)) { this.onStatus('unsupported'); return; }
@@ -23,10 +30,15 @@ export class AdapterReader {
     navigator.usb.addEventListener('disconnect', (e) => {
       if ((e as USBConnectionEvent).device === this.device) { this.running = false; this.device = null; this.onStatus('disconnected'); }
     });
+    await this.find();
+  }
+
+  private async find(): Promise<void> {
+    if (this.device || this.stopped) return;
     try {
       const devices = await navigator.usb.getDevices();
       const found = devices.find((d) => d.vendorId === ADAPTER_FILTER.vendorId && d.productId === ADAPTER_FILTER.productId);
-      if (!found) { this.onStatus('not-paired'); return; }
+      if (!found) { this.onStatus('not-paired'); this.scheduleRetry(); return; }
       await this.open(found);
     } catch (err) {
       this.onStatus('unsupported', String(err));
@@ -54,7 +66,9 @@ export class AdapterReader {
       this.onStatus('connected');
       void this.loop(device, epIn, epOut);
     } catch (err) {
+      void device.close().catch(() => {});
       this.onStatus('open-failed', String((err as Error).message ?? err));
+      this.scheduleRetry();
     }
   }
 
@@ -75,12 +89,15 @@ export class AdapterReader {
         this.running = false;
         this.device = null;
         this.onStatus('disconnected', String((err as Error).message ?? err));
+        this.scheduleRetry();
         return;
       }
     }
   }
 
   stop(): void {
+    this.stopped = true;
+    clearTimeout(this.retryTimer);
     this.running = false;
     void this.device?.close().catch(() => {});
     this.device = null;

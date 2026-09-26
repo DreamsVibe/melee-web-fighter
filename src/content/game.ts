@@ -128,8 +128,10 @@ export class Game {
 
   private adapterStatus(status: string): void {
     this.input.adapterStatus = status;
-    // WebUSB blocked in the page frame: ask the service worker for the offscreen relay.
-    if (status === 'unsupported' && !this.relayOn) {
+    // The page frame cannot read the adapter (WebUSB blocked there, no permission in that frame, paired
+    // after the page loaded, or held by another tab): ask the service worker for the offscreen relay,
+    // which keeps retrying until the adapter opens.
+    if ((status === 'unsupported' || status === 'not-paired' || status === 'open-failed') && !this.relayOn) {
       this.relayOn = true;
       chrome.runtime.onMessage.addListener(this.relayListener);
       void chrome.runtime.sendMessage({ type: 'mwf:relay-start' });
@@ -210,7 +212,7 @@ export class Game {
         `engine step ${this.stepMs.toFixed(3)} ms · stage ${this.stage!.data.segments.length} segs, scan ${this.stage!.lastBuildMs.toFixed(1)} ms/frame`,
         `px_per_unit ${this.view.ppu.toFixed(2)} · plugins: ${e.plugins.map((p) => p.id).join(', ') || 'none'}`,
       ]);
-      this.debug.drawInput(ctx, this.pad, this.input.source, `adapter: ${this.input.adapterStatus}` + (this.relayOn ? ` (${this.relayLatency.toFixed(1)} ms)` : ''));
+      this.debug.drawInput(ctx, this.pad, this.input.source, `adapter: ${this.input.adapterStatus}${this.input.adapterPort >= 0 ? ` port ${this.input.adapterPort + 1}` : ''}` + (this.relayOn ? ` (${this.relayLatency.toFixed(1)} ms)` : ''));
       this.quad!.draw(this.debug.canvas);
     }
   }

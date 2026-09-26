@@ -5,5 +5,6 @@ import { AdapterReader } from './adapter';
 const reader = new AdapterReader(
   (report) => void chrome.runtime.sendMessage({ type: 'mwf:relay-report', report: Array.from(report), t: performance.timeOrigin + performance.now() }),
   (status, detail) => void chrome.runtime.sendMessage({ type: 'mwf:relay-status', status, detail }),
+  true,
 );
 void reader.start();
