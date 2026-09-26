@@ -1,0 +1,38 @@
+# --- Disc data: never commit anything from the user's Melee disc ---
+*.iso
+*.ciso
+*.gcm
+*.gcz
+*.rvz
+*.wbfs
+*.dol
+*.dat
+*.usd
+*.ssm
+*.sem
+*.hps
+*.thp
+*.mth
+# Anything extracted, traced or cached from the disc
+extracted/
+disc/
+cache/
+.cache/
+traces/
+*.trace.csv
+tests/traces/*.csv
+!tests/traces/.gitkeep
+tests/expected/
+*.melee-cache
+characters-export/
+*.charzip
+fox-export*.zip
+
+# --- Build output and tooling ---
+node_modules/
+dist/
+*.zip
+.tools/
+*.log
+.DS_Store
+Thumbs.db
