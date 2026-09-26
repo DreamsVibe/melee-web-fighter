@@ -1,6 +1,7 @@
 // Importer page: pick the disc, verify it, convert Fox, store the character folder.
 import { Disc, DiscError } from './disc';
 import { runImport } from './pipeline';
+import { startPreview } from './preview';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fileInput = $<HTMLInputElement>('file');
@@ -37,7 +38,7 @@ startBtn.addEventListener('click', async () => {
     }, (line) => { log.textContent += line + '\n'; log.scrollTop = log.scrollHeight; });
     progress.value = 1;
     say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: Fox's folder is ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
-    document.dispatchEvent(new CustomEvent('mwf-imported'));
+    await showPreview();
   } catch (err) {
     console.error(err);
     say(err instanceof DiscError ? err.message : `Import failed: ${(err as Error).message ?? err}`, true);
@@ -45,4 +46,20 @@ startBtn.addEventListener('click', async () => {
     startBtn.disabled = false;
     fileInput.disabled = false;
   }
+});
+
+async function showPreview(): Promise<void> {
+  const card = $<HTMLDivElement>('previewCard');
+  card.hidden = false;
+  try {
+    await startPreview($<HTMLCanvasElement>('preview'));
+  } catch (err) {
+    card.hidden = true;
+    say(`Imported, but the preview failed: ${(err as Error).message}`, true);
+  }
+}
+
+// Show the preview straight away when a folder was imported before.
+import('../shared/db').then(async ({ getFile }) => {
+  if (await getFile('characters/fox/character.json')) { say('Fox is already imported. Import again to refresh him.'); await showPreview(); }
 });

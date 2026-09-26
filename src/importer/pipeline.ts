@@ -1,21 +1,30 @@
-// The import pipeline: disc → Fox's files → character folder in IndexedDB.
+// The import pipeline: disc → Fox's source files → converted character folder in IndexedDB.
+// Only converted files are stored; the disc's own files are dropped once converted.
 import { Disc } from './disc';
+import { Archive } from './hsd';
+import { extractModel } from './model';
 import { putFiles, deletePrefix, FORMAT_VERSION, META_PATH, type FileData } from '../shared/db';
+import { writeMesh, writeSkeleton, writeTexture, type MaterialDef } from '../shared/modelfile';
 
 export type Progress = (fraction: number, text: string) => void;
 export type Log = (line: string) => void;
+export type OutFile = { path: string; data: FileData };
+
+export const CHAR_DIR = 'characters/fox/';
+export const COMMON_DIR = 'common/';
 
 /** Disc files Fox needs. Sound banks are English (NTSC default language). */
 export const SOURCE_FILES = [
   'PlFx.dat', 'PlFxNr.dat', 'PlFxAJ.dat', 'PlCo.dat',
   'audio/us/smash2.sem', 'audio/us/main.ssm', 'audio/us/fox.ssm',
 ] as const;
+export type Sources = Map<(typeof SOURCE_FILES)[number], Uint8Array>;
 
-export async function extractSources(disc: Disc, progress: Progress, log: Log): Promise<Map<string, Uint8Array>> {
-  const out = new Map<string, Uint8Array>();
+export async function extractSources(disc: Disc, progress: Progress, log: Log): Promise<Sources> {
+  const out: Sources = new Map();
   let i = 0;
   for (const path of SOURCE_FILES) {
-    progress(0.05 + 0.35 * (i++ / SOURCE_FILES.length), `Reading ${path}…`);
+    progress(0.02 + 0.2 * (i++ / SOURCE_FILES.length), `Reading ${path}…`);
     const data = await disc.readFile(path);
     out.set(path, data);
     log(`read ${path} (${(data.length / 1024).toFixed(0)} KB)`);
@@ -23,12 +32,74 @@ export async function extractSources(disc: Disc, progress: Progress, log: Log): 
   return out;
 }
 
+const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
+
+/** DObjs shown by default: the high-detail lookup of the fighter's part-visibility table. */
+function hiddenParts(plfx: Archive): number[] {
+  const root = plfx.rootEndingWith('ftData' + 'Fox')[1];
+  const x8 = plfx.ptr(root + 8);
+  const table = plfx.ptr(x8 + 4);
+  const models = plfx.u32(x8);
+  const collect = (lookupIdx: number): Set<number> => {
+    const s = new Set<number>();
+    if (!plfx.isPtr(table + 4 * lookupIdx)) return s;
+    const lk = plfx.ptr(table + 4 * lookupIdx);
+    for (let i = 0; i < models; i++) {
+      const cnt = plfx.u32(lk + 8 * i), arr = plfx.ptr(lk + 8 * i + 4);
+      for (let j = 0; j < cnt; j++) {
+        const c = plfx.u32(arr + 8 * j), p = plfx.ptr(arr + 8 * j + 4);
+        for (let k = 0; k < c; k++) s.add(plfx.u8(p + k));
+      }
+    }
+    return s;
+  };
+  const high = collect(0), low = collect(1);
+  return [...low].filter((d) => !high.has(d)).sort((a, b) => a - b);
+}
+
+export function convertModel(sources: Sources, log: Log): OutFile[] {
+  const nr = new Archive(sources.get('PlFxNr.dat')!);
+  const m = extractModel(nr);
+  const files: OutFile[] = [];
+  files.push({ path: CHAR_DIR + 'model/skeleton.skel', data: writeSkeleton(m.joints.map((j) => ({ ...j, inverseBind: j.inverseBind ? new Float32Array(j.inverseBind) : null }))) });
+  files.push({
+    path: CHAR_DIR + 'model/mesh.mesh',
+    data: writeMesh({
+      vertices: new Float32Array(m.vertices), bones: new Uint8Array(m.bones), weights: new Uint8Array(m.weights),
+      indices: m.vertices.length / 8 > 65535 ? new Uint32Array(m.indices) : new Uint16Array(m.indices), batches: m.batches,
+    }),
+  });
+  const materials: MaterialDef[] = m.materials.map((mt) => ({
+    diffuse: mt.diffuse, ambient: mt.ambient, texture: mt.texture >= 0 ? `textures/tex${String(mt.texture).padStart(2, '0')}.tex` : null,
+    uvScale: mt.uvScale, wrap: mt.wrap, translucent: mt.translucent, alpha: mt.alpha, dobj: mt.dobj, joint: mt.joint,
+  }));
+  files.push({ path: CHAR_DIR + 'model/materials.json', data: json(materials) });
+  m.textures.forEach((t, i) => files.push({ path: CHAR_DIR + `textures/tex${String(i).padStart(2, '0')}.tex`, data: writeTexture(t) }));
+  log(`model: ${m.joints.length} joints, ${m.vertices.length / 8} vertices, ${m.indices.length / 3} triangles, ${m.textures.length} textures`);
+  return files;
+}
+
 export async function runImport(disc: Disc, progress: Progress, log: Log): Promise<{ files: number; bytes: number }> {
   const sources = await extractSources(disc, progress, log);
-  progress(0.5, 'Storing…');
-  const files: Array<{ path: string; data: FileData }> = [];
-  for (const [path, data] of sources) files.push({ path: 'raw/' + path, data });
+  progress(0.25, 'Converting the model…');
+  const plfx = new Archive(sources.get('PlFx.dat')!);
+  const files: OutFile[] = [...convertModel(sources, log)];
+  const attrs = plfx.ptr(plfx.rootEndingWith('ftDataFox')[1]);
+  const character = {
+    name: 'Fox',
+    id: 'fox',
+    formatVersion: FORMAT_VERSION,
+    modelScale: plfx.f32(attrs + 0x8c),
+    hiddenParts: hiddenParts(plfx),
+    costumes: ['default'],
+  };
+  files.push({ path: CHAR_DIR + 'character.json', data: json(character) });
   files.push({ path: META_PATH, data: JSON.stringify({ formatVersion: FORMAT_VERSION, importedAt: new Date().toISOString(), disc: `${disc.gameId} rev ${disc.revision}` }) });
+
+  progress(0.9, 'Storing the character folder…');
+  // Re-import replaces imported data; overrides/ is never touched.
+  await deletePrefix(CHAR_DIR);
+  await deletePrefix(COMMON_DIR);
   await deletePrefix('raw/');
   await putFiles(files);
   const bytes = files.reduce((s, f) => s + (typeof f.data === 'string' ? f.data.length : f.data.length), 0);
