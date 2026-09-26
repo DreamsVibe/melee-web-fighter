@@ -10,17 +10,20 @@ let port: MessagePort | null = null;
 async function sendFolder(paths?: string[]): Promise<void> {
   if (!port) return;
   const all = await listFiles();
+  const batch: Array<{ path: string; data: string | Uint8Array }> = [];
+  const transfer: ArrayBuffer[] = [];
   for (const f of all) {
     if (paths && !paths.includes(f.path)) continue;
     if (f.path.startsWith('raw/')) continue;
     const data = typeof f.data === 'string' ? f.data : f.data.slice();
-    port.postMessage({ type: MSG.file, path: f.path, data }, typeof data === 'string' ? [] : [data.buffer]);
+    if (typeof data !== 'string') transfer.push(data.buffer as ArrayBuffer);
+    batch.push({ path: f.path, data });
   }
+  // One message for the whole folder: hundreds of small messages cost seconds on busy pages.
+  port.postMessage({ type: MSG.file, files: batch }, transfer);
   if (paths) {
-    // Deleted files: tell the content script to drop them.
     const present = new Set(all.map((f) => f.path));
-    const gone = paths.filter((p) => !present.has(p));
-    port.postMessage({ type: MSG.changed, paths, deleted: gone });
+    port.postMessage({ type: MSG.changed, paths, deleted: paths.filter((p) => !present.has(p)) });
   } else port.postMessage({ type: MSG.folderDone });
 }
 
@@ -33,7 +36,7 @@ window.addEventListener('message', (e) => {
   if (e.data?.type !== MSG.hello || !e.ports[0] || port) return;
   port = e.ports[0];
   port.start();
-  void sendSettings().then(() => sendFolder());
+  sendSettings().then(() => sendFolder()).catch((err) => console.error('[mwf bridge]', err));
   const adapter = new AdapterReader(
     (report) => port?.postMessage({ type: MSG.adapter, report }, [report.buffer]),
     (status) => port?.postMessage({ type: MSG.adapterStatus, status }),

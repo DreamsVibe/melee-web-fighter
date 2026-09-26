@@ -3,7 +3,7 @@
 import { Disc } from './disc';
 import { Archive } from './hsd';
 import { extractModel } from './model';
-import { putFiles, deletePrefix, FORMAT_VERSION, META_PATH, type FileData } from '../shared/db';
+import { replaceImported, FORMAT_VERSION, META_PATH, type FileData } from '../shared/db';
 import { writeMesh, writeSkeleton, writeTexture, type MaterialDef } from '../shared/modelfile';
 import { writeAnim } from '../shared/animfile';
 import { readActionTable, readFigatree, type ActionEntry } from './actions';
@@ -133,10 +133,7 @@ export async function runImport(disc: Disc, progress: Progress, log: Log): Promi
 
   progress(0.9, 'Storing the character folder…');
   // Re-import replaces imported data; overrides/ is never touched.
-  await deletePrefix(CHAR_DIR);
-  await deletePrefix(COMMON_DIR);
-  await deletePrefix('raw/');
-  await putFiles(files);
+  await replaceImported(files);
   const bytes = files.reduce((s, f) => s + (typeof f.data === 'string' ? f.data.length : f.data.length), 0);
   return { files: files.length, bytes };
 }

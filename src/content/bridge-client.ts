@@ -31,13 +31,14 @@ export class BridgeClient {
   }
 
   /** Resolves once the whole character folder has arrived. */
-  load(timeoutMs = 8000): Promise<void> {
+  load(timeoutMs = 30000): Promise<void> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('The extension did not answer (the page may block extension frames).')), timeoutMs);
+      this.port.onmessageerror = (e) => { console.error('[mwf] bridge message could not be read', e); };
       this.port.onmessage = (e) => {
         const m = e.data;
         switch (m?.type) {
-          case MSG.file: this.files.set(m.path, m.data); break;
+          case MSG.file: for (const f of m.files) this.files.set(f.path, f.data); break;
           case MSG.folderDone: clearTimeout(timer); resolve(); break;
           case MSG.changed:
             for (const p of m.deleted ?? []) this.files.delete(p);

@@ -74,3 +74,22 @@ test('zip writer and reader round-trip', async () => {
   const back = await readZip(writeZip(files));
   assert(back.length === 2 && new TextDecoder().decode(back[0].data) === '{"x":1}' && back[1].data[3] === 255, 'zip round trip failed');
 });
+
+test('pad processing follows HSD clamp/scale and adapter report layout', async () => {
+  const { padToFloats, emptyFloats, AdapterDecoder, emptyPad, BTN } = await import('../src/engine/pad');
+  const f = padToFloats({ buttons: 0, stickX: 110, stickY: 0, cX: 0, cY: 0, trigL: 200, trigR: 70 }, emptyFloats());
+  assert(f.stickX === 1 && f.stickY === 0, `stick not clamped to radius 80: ${f.stickX}`);
+  assert(f.analogL === 1 && Math.abs(f.analogR - 0.5) < 1e-6, `triggers ${f.analogL} ${f.analogR}`);
+  const diag = padToFloats({ buttons: 0, stickX: 80, stickY: 80, cX: 0, cY: 0, trigL: 0, trigR: 0 }, emptyFloats());
+  assert(Math.abs(Math.hypot(diag.stickX, diag.stickY) - 1) < 0.02, 'diagonal not clamped to the circle');
+  const report = new Uint8Array(37);
+  report[0] = 0x21;
+  report.set([0x10, 0x01 | 0x04, 0x08 | 0x02, 128, 128, 128, 128, 30, 30], 1); // port 1 plugged: A+X, L+Z, neutral
+  const dec = new AdapterDecoder();
+  const p = emptyPad();
+  assert(dec.decode(report, 0, p), 'port 1 not decoded');
+  assert(p.buttons === (BTN.A | BTN.X | BTN.L | BTN.Z) && p.stickX === 0 && p.trigL === 0, `buttons ${p.buttons.toString(16)}`);
+  report[4] = 228; report[8] = 130;
+  dec.decode(report, 0, p);
+  assert((p.stickX as number) === 100 && (p.trigL as number) === 100, 'origin not subtracted');
+});

@@ -55,14 +55,21 @@ export class Overlay {
       if (document.hidden) return;
       this.acc += Math.min(now - this.last, 250);
       this.last = now;
-      let steps = 0;
-      while (this.acc >= STEP_MS && steps < 8) {
-        this.onStep?.();
-        this.acc -= STEP_MS;
-        steps++;
+      try {
+        let steps = 0;
+        while (this.acc >= STEP_MS && steps < 8) {
+          this.onStep?.();
+          this.acc -= STEP_MS;
+          steps++;
+        }
+        if (steps === 8) this.acc = 0;
+        this.onRender?.(this.acc / STEP_MS);
+      } catch (err) {
+        // Never let an engine bug break the page: stop the loop and say what happened.
+        cancelAnimationFrame(this.raf);
+        console.error('[melee-web-fighter]', err);
+        this.showError(String((err as Error)?.message ?? err));
       }
-      if (steps === 8) this.acc = 0;
-      this.onRender?.(this.acc / STEP_MS);
     };
     this.raf = requestAnimationFrame(frame);
   }
