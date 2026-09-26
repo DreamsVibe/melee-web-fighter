@@ -43,6 +43,8 @@ export class Game {
   /** Fox's standing height in Melee units (measured from his idle pose at load). */
   private fighterHeight = 14;
   private stepMs = 0;
+  /** Worst per-frame stage update since the last stats line (dev builds log it). */
+  private stageMaxMs = 0;
   private relayOn = false;
   private relayLatency = 0;
 
@@ -144,12 +146,15 @@ export class Game {
   /** One engine step (exactly 1/60 s). */
   private step(): void {
     const e = this.engine!;
+    const ts = performance.now();
     this.stage!.update();
+    this.stageMaxMs = Math.max(this.stageMaxMs, performance.now() - ts);
     e.setStage(this.stage!.data);
     this.input.sample(this.pad);
     const t0 = performance.now();
     e.step(this.pad);
     this.stepMs = this.stepMs * 0.95 + (performance.now() - t0) * 0.05;
+    if (DEV && e.frame % 300 === 0) { console.log(`[mwf] stats step ${this.stepMs.toFixed(3)} ms, stage worst frame ${this.stageMaxMs.toFixed(2)} ms, last rebuild ${this.stage!.lastScanTotalMs.toFixed(2)} ms, ${this.stage!.data.segments.length} segs`); this.stageMaxMs = 0; }
     for (const ev of e.events) {
       if (ev.type === 'sound') this.audio!.play(ev.id, ev.volume, ev.pan);
       else if (ev.type === 'hitbox') this.reactions!.hit(ev.hitbox, e.fighter);
@@ -202,7 +207,7 @@ export class Game {
       this.debug.text(ctx, [
         `${fp.motionName}  frame ${fp.animFrame.toFixed(1)}  ${fp.ga ? 'air' : 'ground'}  jumps ${fp.jumpsUsed}`,
         `pos ${fp.pos.x.toFixed(2)}, ${fp.pos.y.toFixed(2)}  vel ${fp.selfVel.x.toFixed(3)}, ${fp.selfVel.y.toFixed(3)}  gr ${fp.grVel.toFixed(3)}`,
-        `engine step ${this.stepMs.toFixed(3)} ms · stage ${this.stage!.data.segments.length} segs, scan ${this.stage!.lastBuildMs.toFixed(1)} ms`,
+        `engine step ${this.stepMs.toFixed(3)} ms · stage ${this.stage!.data.segments.length} segs, scan ${this.stage!.lastBuildMs.toFixed(1)} ms/frame`,
         `px_per_unit ${this.view.ppu.toFixed(2)} · plugins: ${e.plugins.map((p) => p.id).join(', ') || 'none'}`,
       ]);
       this.debug.drawInput(ctx, this.pad, this.input.source, `adapter: ${this.input.adapterStatus}` + (this.relayOn ? ` (${this.relayLatency.toFixed(1)} ms)` : ''));

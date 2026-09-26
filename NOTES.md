@@ -224,5 +224,26 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
   page elements have no stage materials.
 * Steps 10–16 landed as one commit: the state machine, script interpreter, collision and the
   page wiring (reactions, plugin hooks) depend on each other and were built and verified together.
-* IndexedDB in the test profile takes 5–10 s to open cold (even for an empty database), so the
-  folder is stored as one packed record and the bridge waits up to 30 s.
+* The folder is stored as one packed IndexedDB record and the bridge waits up to 30 s. A fresh
+  profile opens the database in milliseconds and loads the folder in about 2 s; a long-lived test
+  profile degraded to 20–30 s opens, which is what the packing and the long timeout came from.
+
+## Performance (step 18)
+
+Measured in Chrome for Testing 154 on the World War II Wikipedia article (61,000 px tall, 17,000
+elements):
+
+* 60 fps while idle, while running and while scrolling.
+* Engine step 0.1–0.3 ms (target 0.5 ms).
+* The stage rescan is time-sliced at 2.5 ms per frame (`SLICE_MS` in `stage.ts`). A full rescan
+  takes 4–10 ms spread over a few frames, and the typical worst frame is about 2.8 ms.
+* Occasional frames reach 5–7 ms, when the first box read of a slice forces style or layout work
+  the page itself had queued (Wikipedia mutates its DOM as you scroll).
+
+What made the scan cheap:
+
+* Culling uses each box grown to its scroll size, not the box alone: Wikipedia's `<body>` is one
+  screen tall and the article overflows it. The old cull dropped the whole page once scrolled.
+* Long child lists (more than 64 children, in block flow) are bisected to the part near the region.
+* Elements too small to be solid skip `getComputedStyle`; only their text matters.
+* The region is the viewport plus half a screen, which is where the blast zone is.
