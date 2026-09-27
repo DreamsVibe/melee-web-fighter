@@ -4,6 +4,9 @@ Play Fox from Super Smash Bros. Melee on any webpage. Every line of text, image 
 becomes a platform he can stand on and drop through. Play with a GameCube controller, any gamepad
 or the keyboard. Fox never changes the page: his attacks and lasers are drawn on his own overlay.
 
+<img width="1714" height="963" alt="meleefighterweb" src="https://github.com/user-attachments/assets/e7487902-f118-458f-b790-ec02106ef9b2" />
+
+
 **Right now it's just Fox, by himself** (no opponents), with his whole moveset checked frame by
 frame against the real game.
 
