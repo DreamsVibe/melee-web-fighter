@@ -14,6 +14,12 @@ const LANDING_LAG: Record<string, string> = {
   AttackAirHi: 'landingairhi_lag', AttackAirLw: 'landingairlw_lag',
 };
 
+/** Fox's moves that need logic data can't express, by the behavior module that runs them. */
+const BEHAVIOR_OF: Array<[RegExp, string]> = [
+  [/^Special(Air)?N/, 'blaster'], [/^Special(Air)?S/, 'illusion'], [/^SpecialHi/, 'firefox'],
+  [/^Special(Air)?Lw/, 'shine'], [/^SpecialAppeal/, 'appeal'],
+];
+
 /** Emits the script at `start` and everything it jumps to as one body with labels. */
 export function scriptBody(a: Archive, start: number): { body: Cmd[]; raw: number[][] } {
   const scripts: RawCommand[][] = [];
@@ -48,7 +54,8 @@ export function convertMoves(plfx: Archive, actions: ActionEntry[], attributes: 
     const name = submotionName(act.index);
     const move: MoveFile = { name, animation: act.anim || null, body: [], animFlags: act.flags };
     if (LANDING_LAG[name]) move.landingLag = attributes[LANDING_LAG[name]];
-    if (name.startsWith('SpecialLw') || name.startsWith('SpecialAirLw')) move.behavior = 'shine';
+    const behavior = BEHAVIOR_OF.find(([re]) => re.test(name));
+    if (behavior) move.behavior = behavior[1];
     if (act.script) move.body = scriptBody(plfx, act.script).body;
     out.push({ name, move, text: formatMove(move, soundName) });
   }

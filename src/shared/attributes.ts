@@ -25,10 +25,25 @@ export const ATTRIBUTE_FIELDS: Field[] = [
   ['screw_attack_launch_velocity', 0x140], ['wall_jump_min_approach_speed', 0x148], ['respawn_platform_scale', 0x160],
 ];
 
-/** Fox's reflector attributes (ext_attr +0x98..+0xAC). */
+/** Fox's special-move attributes (ftFox_DatAttrs, ext_attr +0x00..+0xAC). */
 export const FOX_SPECIAL_FIELDS: Field[] = [
+  ['blaster_unk_00', 0x00], ['blaster_unk_04', 0x04], ['blaster_unk_08', 0x08], ['blaster_unk_0c', 0x0c],
+  ['blaster_angle', 0x10], ['blaster_velocity', 0x14], ['blaster_landing_lag', 0x18],
+  ['illusion_gravity_delay', 0x24], ['illusion_ground_vel_div', 0x28], ['illusion_start_air_friction', 0x2c],
+  ['illusion_start_fall_accel', 0x30], ['illusion_ground_end_vel_x', 0x34], ['illusion_ground_end_friction', 0x38],
+  ['illusion_air_end_vel_x', 0x3c], ['illusion_air_end_friction', 0x40], ['illusion_end_gravity_delay', 0x44],
+  ['illusion_end_fall_accel', 0x48], ['illusion_freefall_mobility', 0x4c], ['illusion_landing_lag', 0x50],
+  ['firefox_gravity_delay', 0x54], ['firefox_vel_div', 0x58], ['firefox_hold_air_friction', 0x5c],
+  ['firefox_hold_fall_accel', 0x60], ['firefox_direction_stick_min', 0x64], ['firefox_duration', 0x68],
+  ['firefox_bounce_frames', 0x6c, 'i'], ['firefox_decel_start', 0x70], ['firefox_speed', 0x74],
+  ['firefox_decel', 0x78], ['firefox_landing_friction', 0x7c], ['firefox_unk_80', 0x80],
+  ['firefox_bound_vel_x', 0x84], ['firefox_facing_stick_min', 0x88], ['firefox_freefall_mobility', 0x8c],
+  ['firefox_landing_lag', 0x90], ['firefox_bound_angle', 0x94],
   ['reflector_release_lag', 0x98], ['reflector_turn_frames', 0x9c], ['reflector_unk_a0', 0xa0],
   ['reflector_gravity_delay', 0xa4, 'i'], ['reflector_momentum_preserve_x', 0xa8], ['reflector_fall_accel', 0xac],
+  // ReflectDesc at +0xB0: the reflector bubble's bone, offset and size.
+  ['reflector_bone', 0xb0, 'i'], ['reflector_offset_x', 0xb8], ['reflector_offset_y', 0xbc], ['reflector_offset_z', 0xc0],
+  ['reflector_size', 0xc4],
 ];
 
 /** ftCommonData values the engine reads, by name. */
@@ -51,6 +66,19 @@ export const COMMON_FIELDS: Field[] = [
   ['jump_y_velocity_keep', 0x438], ['walk_anim_speed_ratio', 0x440], ['fall_blend_threshold', 0x444], ['fall_blend_rate', 0x448],
   ['pass_stick_threshold', 0x464], ['pass_stick_window', 0x468], ['pass_y_velocity', 0x46c], ['pass_delay', 0x470],
   ['teeter_walk_threshold', 0x474],
+  // Ground attacks (ftCo_Attack*_CheckInput), specials, shield, rolls and grabs.
+  ['dash_attack_friction_mul', 0x50], ['catch_friction_mul', 0x64], ['dash_grab_window', 0x68], ['ftilt_stick_threshold', 0x98],
+  ['ftilt_angle_hi', 0x9c], ['ftilt_angle_his', 0xa0], ['ftilt_angle_lws', 0xa4], ['ftilt_angle_lw', 0xa8],
+  ['utilt_stick_threshold', 0xac], ['dtilt_stick_threshold', 0xb0], ['fsmash_angle_hi', 0xb8],
+  ['fsmash_angle_his', 0xbc], ['fsmash_angle_lws', 0xc0], ['fsmash_angle_lw', 0xc4], ['usmash_stick_threshold', 0xcc],
+  ['usmash_stick_window', 0xd0], ['dsmash_stick_threshold', 0xd4], ['dsmash_stick_window', 0xd8],
+  ['special_s_threshold', 0x218], ['special_s_turn_threshold', 0x220], ['special_n_turn_window', 0x224, 'i'],
+  ['powershield_input_window', 0x2a0, 'i'], ['shield_start_health', 0x260], ['shield_min_size', 0x264], ['shield_min_hold_frames', 0x268],
+  ['shield_decay', 0x278], ['shield_regen', 0x27c], ['shield_size_light', 0x2d4], ['shield_size_full', 0x2d8],
+  ['shield_decay_light', 0x2ec], ['shield_decay_full', 0x2f0], ['shield_alpha_min', 0x2f4],
+  ['spotdodge_stick_threshold', 0x314], ['spotdodge_stick_window', 0x318, 'i'], ['roll_stick_threshold', 0x31c],
+  ['roll_stick_window', 0x320, 'i'], ['roll_arg', 0x324, 'i'], ['run_shield_lag', 0x410, 'i'],
+  ['smash_charge_sound_frame', 0x7c8],
 ];
 
 export type NamedValues = Record<string, number>;

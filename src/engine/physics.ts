@@ -127,3 +127,32 @@ export function clampGroundVel(fp: Fighter, max: number): void {
   if (fp.grVel < -max) fp.grVel = f(-max);
   else if (fp.grVel > max) fp.grVel = f(max);
 }
+
+const rootMotion = (fp: Fighter) => !!fp.move && (fp.move.animFlags & 0x80000000) !== 0;
+
+/** ft_80085030: ground speed from the animation's root motion, or friction when it has none. */
+export function groundRootMotion(fp: Fighter, friction: number, facing: number): void {
+  if (rootMotion(fp)) fp.grAccel1 = f(fp.rootDelta.z * facing - fp.grVel);
+  else groundDeaccel(fp, friction);
+  selfFromGround(fp);
+}
+
+/** ft_80084FA8: ground attacks, with the doubled friction above walk speed. */
+export function groundAttackPhysics(fp: Fighter, a: Named, c: Named): void {
+  let friction = a.ground_friction;
+  if (abs(fp.grVel) > a.walk_max_vel) friction = f(friction * c.friction_above_walk_speed);
+  groundRootMotion(fp, friction, fp.facing);
+}
+
+/** ft_800850E0: ground speed set straight from root motion. */
+export function groundRootMotionSet(fp: Fighter, friction: number, facing: number): void {
+  if (rootMotion(fp)) fp.grVel = f(fp.rootDelta.z * facing);
+  else groundDeaccel(fp, friction);
+  selfFromGround(fp);
+}
+
+/** ft_80085134: air velocity straight from root motion. */
+export function airRootMotion(fp: Fighter): void {
+  fp.selfVel.x = f(fp.rootDelta.z * fp.facing);
+  fp.selfVel.y = fp.rootDelta.y;
+}

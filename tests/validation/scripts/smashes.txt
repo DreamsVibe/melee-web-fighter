@@ -1,0 +1,11 @@
+# Forward, up and down smash, then a forward smash charged for 30 frames.
+200 sx=127 A
+201
+280 sy=127 A
+281
+360 sy=-127 A
+361
+440 sx=-127 A
+441 A
+470
+560

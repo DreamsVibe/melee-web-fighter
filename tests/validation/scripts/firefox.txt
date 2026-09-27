@@ -1,0 +1,10 @@
+# Firefox straight up, then from a jump diagonally up and forward.
+200 sy=127 B
+201 sy=127
+250
+330 X
+331
+338 sy=127 B
+339 sx=90 sy=90
+400
+480

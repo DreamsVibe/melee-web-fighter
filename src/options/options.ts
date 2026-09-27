@@ -114,7 +114,7 @@ async function init(): Promise<void> {
 }
 
 // ---------------------------------------------------------------- gamepad mapping
-const GC_BUTTONS: Array<keyof GamepadMapping> = ['a', 'b', 'x', 'y', 'z', 'l', 'r', 'start', 'dpadDown'];
+const GC_BUTTONS: Array<keyof GamepadMapping> = ['a', 'b', 'x', 'y', 'z', 'l', 'r', 'start', 'dpadDown', 'dpadUp'];
 function renderMapping(): void {
   const t = $<HTMLTableElement>('mapping');
   t.replaceChildren(...GC_BUTTONS.map((b) => {

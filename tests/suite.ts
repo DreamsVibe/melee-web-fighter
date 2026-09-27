@@ -113,6 +113,61 @@ test('engine: Fox stands, full hops, lands', async (disc) => {
   assert(e.fighter.motionName === 'Wait' || e.fighter.motionName === 'Landing', `did not land: ${e.fighter.motionName}`);
 }, true);
 
+test("engine: every one of Fox's moves starts, plays and returns to standing", async (disc) => {
+  const { foxData, newEngine, pad } = await import('./sim');
+  const data = await foxData(disc);
+  type P = Parameters<typeof pad>[0];
+  // Each case: a list of [frames, pad] steps, then idle; the states it must pass through.
+  const cases: Array<{ name: string; steps: Array<[number, P]>; expect: string[]; lasers?: boolean }> = [
+    { name: 'jab, jab, rapid jab', steps: [[1, { buttons: 'A' }], [4, {}], [1, { buttons: 'A' }], [4, {}], ...Array.from({ length: 16 }, (_, i): [number, P] => [1, { buttons: i % 2 ? '' : 'A' }])], expect: ['Attack11', 'Attack12', 'Attack100Loop', 'Attack100End'] },
+    { name: 'forward tilt', steps: [[3, { sx: 45 }], [1, { sx: 45, buttons: 'A' }]], expect: ['AttackS3S'] },
+    { name: 'up tilt', steps: [[3, { sy: 40 }], [1, { sy: 40, buttons: 'A' }]], expect: ['AttackHi3'] },
+    { name: 'down tilt', steps: [[8, { sy: -60 }], [1, { sy: -60, buttons: 'A' }], [30, { sy: -60 }]], expect: ['AttackLw3'] },
+    { name: 'forward smash, charged', steps: [[1, { sx: 127, buttons: 'A' }], [40, { buttons: 'A' }]], expect: ['AttackS4S'] },
+    { name: 'up smash', steps: [[1, { cy: 127 }]], expect: ['AttackHi4'] },
+    { name: 'down smash', steps: [[1, { cy: -127 }]], expect: ['AttackLw4'] },
+    { name: 'dash attack', steps: [[4, { sx: 127 }], [1, { sx: 127, buttons: 'A' }]], expect: ['Dash', 'AttackDash'] },
+    { name: 'grab', steps: [[1, { buttons: 'Z' }]], expect: ['Catch'] },
+    { name: 'dash grab', steps: [[4, { sx: 127 }], [1, { buttons: 'Z' }]], expect: ['CatchDash'] },
+    { name: 'power shield', steps: [[40, { buttons: 'R' }]], expect: ['GuardReflect', 'Guard', 'GuardOff'] },
+    { name: 'light shield', steps: [[40, { r: 90 }]], expect: ['GuardOn', 'Guard', 'GuardOff'] },
+    { name: 'roll', steps: [[10, { buttons: 'R' }], [1, { buttons: 'R', sx: 127 }]], expect: ['EscapeF'] },
+    { name: 'spot dodge', steps: [[10, { buttons: 'R' }], [1, { buttons: 'R', sy: -127 }]], expect: ['EscapeN'] },
+    { name: 'taunt', steps: [[1, { buttons: 'U' }]], expect: ['AppealSR'] },
+    { name: 'Arwing taunt', steps: [[1, { buttons: 'D' }]], expect: ['SpecialAppealStartR', 'SpecialAppealR', 'SpecialAppealEndR'] },
+    { name: 'blaster', steps: [[1, { buttons: 'B' }], [6, {}], [1, { buttons: 'B' }]], expect: ['SpecialNStart', 'SpecialNLoop', 'SpecialNEnd'], lasers: true },
+    { name: 'illusion', steps: [[1, { sx: 127, buttons: 'B' }]], expect: ['SpecialSStart', 'SpecialS', 'SpecialSEnd'] },
+    { name: 'firefox', steps: [[1, { sy: 127, buttons: 'B' }], [60, { sy: 127 }]], expect: ['SpecialHiHold', 'SpecialAirHi', 'SpecialHiFall', 'FallSpecial'] },
+    { name: 'aerial blaster', steps: [[1, { buttons: 'X' }], [8, {}], [1, { buttons: 'B' }]], expect: ['SpecialAirNStart'], lasers: true },
+    { name: 'aerial illusion', steps: [[1, { buttons: 'X' }], [8, {}], [1, { sx: 127, buttons: 'B' }]], expect: ['SpecialAirSStart', 'SpecialAirS', 'SpecialAirSEnd'] },
+    { name: 'aerial firefox sideways', steps: [[1, { buttons: 'X' }], [8, {}], [1, { sy: 127, buttons: 'B' }], [44, { sx: 127 }]], expect: ['SpecialHiHoldAir', 'SpecialAirHi'] },
+  ];
+  const failures: string[] = [];
+  for (const c of cases) {
+    const e = newEngine(data);
+    for (let i = 0; i < 10; i++) e.step(pad());
+    const seen: string[] = [];
+    let lasers = 0;
+    const record = () => {
+      const n = e.fighter.motionName;
+      if (seen[seen.length - 1] !== n) seen.push(n);
+      lasers += e.events.filter((ev) => ev.type === 'projectile').length;
+    };
+    try {
+      for (const [n, p] of c.steps) for (let i = 0; i < n; i++) { e.step(pad(p)); record(); }
+      for (let i = 0; i < 400 && !(e.fighter.motionName === 'Wait' && e.fighter.ga === 0); i++) { e.step(pad()); record(); }
+    } catch (err) {
+      failures.push(`${c.name}: threw ${(err as Error).stack}`);
+      continue;
+    }
+    const missing = c.expect.filter((s) => !seen.includes(s));
+    const done = e.fighter.motionName === 'Wait';
+    console.log(`      ${c.name.padEnd(24)} ${seen.join(' > ')}${c.lasers ? `  (${lasers} shots)` : ''}`);
+    if (missing.length || !done || (c.lasers && !lasers)) failures.push(`${c.name}: missing ${missing.join(', ') || '-'}, ended in ${e.fighter.motionName}${c.lasers && !lasers ? ', no laser fired' : ''}`);
+  }
+  assert(!failures.length, failures.join('\n      '));
+}, true);
+
 test('validation: web engine matches the real game frame by frame (tests/expected)', async (disc) => {
   const { expectedTraces, readTrace, compareTrace } = await import('./validate');
   const { foxData } = await import('./sim');

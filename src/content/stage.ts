@@ -1,6 +1,8 @@
-// The page as a stage: visible text lines become pass-through platforms; media, controls and boxes
-// with a visible background or border become solid blocks (floor, walls, ceiling, ledges). Only the
-// viewport plus half a screen of margin (the blast zone) is scanned, a few milliseconds per frame.
+// The page as a stage: visible text lines, media, controls and boxes with a visible background or
+// border each become a pass-through platform along their top edge, like Battlefield's side platforms.
+// Nothing is solid: no walls, ceilings or floors that can't be dropped through, so a fighter can
+// never get boxed in by page layout. Only the viewport plus half a screen of margin (the blast zone)
+// is scanned, a few milliseconds per frame.
 // Rebuilt on scroll (throttled), resize and DOM changes (debounced); fixed/sticky elements are
 // re-positioned every frame so they move with the viewport.
 import { SegKind, type Segment, type StageData } from '../engine/stagetypes';
@@ -241,7 +243,7 @@ export class PageStage {
     }
   }
 
-  /** Turns blocks into Melee-unit segments (fixed blocks follow the viewport). */
+  /** Turns blocks into Melee-unit platforms (fixed blocks follow the viewport). */
   private buildSegments(): void {
     const v = this.view;
     const sx = window.scrollX, sy = window.scrollY;
@@ -253,17 +255,8 @@ export class PageStage {
       if (r.r - r.l < minSeg) continue;
       const d = Math.abs((r.t + r.b) / 2 - cy) + Math.abs((r.l + r.r) / 2 - cx) * 0.25;
       // float32 like the game, so a fighter integrated in float32 lines up exactly with a floor.
-      const x0 = Math.fround(v.toUnitsX(r.l)), x1 = Math.fround(v.toUnitsX(r.r)), y0 = Math.fround(v.toUnitsY(r.t)), y1 = Math.fround(v.toUnitsY(r.b));
-      if (!b.solid) {
-        segs.push({ kind: SegKind.Platform, x0, y0, x1, y1: y0, group: b.group, ledges: 0, d });
-        continue;
-      }
-      segs.push({ kind: SegKind.Floor, x0, y0, x1, y1: y0, group: b.group, ledges: 3, d });
-      if (r.b - r.t >= minSeg) {
-        segs.push({ kind: SegKind.WallLeft, x0, y0, x1: x0, y1, group: b.group, ledges: 0, d });
-        segs.push({ kind: SegKind.WallRight, x0: x1, y0, x1, y1, group: b.group, ledges: 0, d });
-        segs.push({ kind: SegKind.Ceiling, x0, y0: y1, x1, y1, group: b.group, ledges: 0, d });
-      }
+      const x0 = Math.fround(v.toUnitsX(r.l)), x1 = Math.fround(v.toUnitsX(r.r)), y0 = Math.fround(v.toUnitsY(r.t));
+      segs.push({ kind: SegKind.Platform, x0, y0, x1, y1: y0, group: b.group, ledges: 0, d });
     }
     if (segs.length > this.opts.maxSegments) {
       segs.sort((a, b) => a.d - b.d);

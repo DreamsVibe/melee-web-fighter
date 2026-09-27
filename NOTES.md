@@ -225,8 +225,12 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
   plus the script with frames relative to retrace 1400) into `tests/expected/<name>.csv`
   (git-ignored). `npm test` replays the same pads through the engine and compares each frame:
   position within 0.01, velocities within 0.01, motion id and facing exact, animation frame within
-  0.001. All 14 scripts (dash dance, run brake, hops, double jump, fast fall, five aerials with
-  L-cancel, wavedash, waveland, multishine, waveshine) match for all 710 compared frames.
+  0.001. All 24 scripts match for all 710 compared frames: dash dance, run brake, hops, double
+  jump, fast fall, five aerials with L-cancel, wavedash, waveland, multishine, waveshine, and (added
+  with the full moveset) jab/rapid jab, tilts, smashes with a charge, dash attack and grabs,
+  shield/roll/spot dodge/jump out of shield, taunt, blaster, Illusion, Firefox, and `combos` (run →
+  dash attack, jumpsquat up smash and grab, Illusion cut short). The trace has no c-stick columns,
+  so scripts use the control stick only.
 * Timing: the game acts on a pad two frames after it reads it, so row R+1 = one engine step from
   row R with the pad of row R-2. The match starts at retrace 1418 and Fox can act from 1524.
 * Final Destination's floor is y = 0.0001, x = ±85.5657. Stage coordinates must be float32
@@ -247,6 +251,68 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
 * The folder is stored as one packed IndexedDB record and the bridge waits up to 30 s. A fresh
   profile opens the database in milliseconds and loads the folder in about 2 s; a long-lived test
   profile degraded to 20–30 s opens, which is what the packing and the long timeout came from.
+
+## Full moveset (after v1)
+
+Fox now has every move he can do alone on a stage. Where each comes from:
+
+* **Ground attacks, shield, dodges, grabs, taunt** (`src/engine/groundmoves.ts`): `ftCo_Attack1.c`
+  (jab window = hitlag_mul, combo/rapid flags from script commands 29/30, `x1A54` press count),
+  `ftCo_Attack100.c` (rapid jab ends when a loop passes throw flag b3 with no A activity; also the
+  game's names for the up/neutral/down B checks), `ftCo_AttackDash.c`, `ftCo_AttackS3/Hi3/Lw3.c`,
+  `ftCo_AttackS4/Hi4/Lw4.c`, `ftCo_Guard.c`, `ftCo_Escape.c`, `ftCo_Catch.c`, `ftCo_AppealS.c`. The
+  movement states' interrupt lists (`ftCo_Wait_IASA`, Walk, Turn, Dash, Run, Squat*, Landing,
+  KneeBend) now follow the decomp's order in full.
+* **Angled tilts and smashes:** `ftData_80085FD4(fp, msid)` is called with motion ids where it wants
+  submotion ids. The mismatch lines up so that it checks whether the *angled* animation exists
+  (e.g. msid AttackS3S = 53 = submotion AttackS3Hi). `hasAnim(name)` does the same.
+* **Smash charge** (`ft/ft_0DF0.c`): command 56 (`smash_charge frames= rate=`) arms it; the input
+  step turns it into a charge while A is held (anim rate 0), the anim step counts to the hold
+  frames (60) and releases. Charge sound 0x7B at `x7C8` frames.
+* **Root motion** (`ftanim.c`, `ft_084E.c` ft_80085030/800850E0/80085134/800851C0): TransN's animated
+  translation × model scale, differenced per animation step (`x6A4_transNOffset`). Zeroed on a
+  state change; one started mid-animation on the ground takes its speed. Dash attack, rolls, dash
+  grab, forward smash and Illusion's dash use it.
+* **Shield states have no animation** (`anim_id -1`: the trace reads frame −1 throughout GuardOn,
+  Guard and GuardReflect; the pose is a part animation from `ftData +0x20`). They are `poseOnly`:
+  no script, no animation step; the renderer shows Guard's first frame. GuardOn lasts
+  `fp->x2E8` frames, which is the GuardOn animation's length (8). A digital press within
+  `powershield_input_window` of the trigger crossing gives GuardReflect (power shield), which the
+  traces confirm is what a digital R does from standing.
+* **Fox's specials** (`src/engine/behaviors/`): `blaster.ts` (ftfoxspecialn.c: shot when the script
+  sets var 2, from RThumbNb + (0, 1.2325, 4.2636), angle `blaster_angle` mirrored when facing
+  left, sounds 110103/110106), `illusion.ts` (ftfoxspecials.c), `firefox.ts` (ftfoxspecialhi.c:
+  XRotN set to 2π − angle; platforms pass through for `firefox_bounce_frames` of the flight via
+  ftCo_8009A134; steep floor hits → SpecialHiBound), `appeal.ts` (ftfoxappeals.c, on D-pad down).
+* **New disc data** (format version 2 forces a re-import): Fox's special attributes
+  `ext_attr +0x00..+0xC4` (`FOX_SPECIAL_FIELDS`, names follow what the code does with each, not the
+  decomp's sometimes misleading names), more `ftCommonData` fields (tilt/smash thresholds and
+  angles, shield, dodge, grab, special-input thresholds), the part → joint table
+  (`ftLoadCommonData[4]` → per-kind `FighterPartsTable`, Fox = kind 1; XRotN = joint 2, RThumbNb =
+  67, also the item joint), the shield joint (`ftData +0x8 → +0x11` = 71) and article 0 (`FoxLaserAttr`: lifetime 35,
+  scale 3). Fox's Corneria taunt submotions are named `SpecialAppeal*` because the common taunt
+  already uses `AppealSR/L`.
+
+### Page as a stage, revised
+
+* Everything on the page is a pass-through platform along its top edge: text lines, media, controls
+  and boxes alike. No walls, ceilings or solid floors: with many page boxes, walls and ceilings
+  trapped Fox between elements. `SegKind.Floor/Wall*/Ceiling` remain in the engine for Final
+  Destination (validation).
+* Page reactions are gone: hits no longer move page elements. The page is never touched; lasers,
+  shield, reflector and flames are drawn on the overlay (`src/content/effects.ts`).
+
+### Deviations (full moveset)
+
+* Throws, pummel and grab release are unreachable: there is no one to catch, so every grab whiffs.
+* A shield worn to zero just drops (no ShieldBreak states); the power shield doesn't reflect.
+* Blaster shots have no hitbox or collision and fly for their lifetime; the blaster gun model and
+  the Arwing (a stage object) aren't drawn.
+* The game's particle effects (command 10) are not modelled; the shield bubble, reflector hexagon,
+  laser beam and Firefox flames are 2D stand-ins. Illusion's afterimages are the fighter redrawn
+  translucently at its last four positions (the game keeps the same four).
+* Command 18 (smash attack voice from the FtSFX list) stays raw.
+* The Arwing taunt plays anywhere on D-pad down; in the game it needs Corneria.
 
 ## Performance (step 18)
 

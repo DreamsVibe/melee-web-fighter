@@ -1,0 +1,26 @@
+# Jab 1 and jab 2, then a rapid jab from mashing A (presses and releases both count).
+200 A
+201
+212 A
+213
+280 A
+281
+282 A
+283
+284 A
+285
+286 A
+287
+288 A
+289
+290 A
+291
+292 A
+293
+294 A
+295
+296 A
+297
+298 A
+299
+360

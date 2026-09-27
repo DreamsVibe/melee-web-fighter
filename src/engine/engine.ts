@@ -4,12 +4,13 @@
 import type { Cmd } from '../shared/move';
 import { restPose, worldMatrices } from '../render/pose';
 import { applyAnim } from '../render/animator';
+import { sampleTrack } from '../render/fobj';
 import { BTN, emptyFloats, padToFloats, type PadFloats, type PadState } from './pad';
 import { runScript, startScript, F32_MAX } from './script';
 import { clampGroundVel } from './physics';
 import { loadEcb, ECB_AIR, ECB_GROUND } from './collision';
 import { SegKind, type Segment, type StageData } from './stagetypes';
-import { GA, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type Named, type Plugin } from './types';
+import { GA, Smash, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type Named, type Plugin, type Projectile } from './types';
 import { STATES, MS, type StateDef } from './states';
 
 const f = Math.fround;
@@ -22,7 +23,12 @@ export const PAD_XY = BTN.X | BTN.Y;
 export const MF = {
   None: 0, KeepFastFall: 1 << 0, KeepGfx: 1 << 1, SkipHit: 1 << 3, SkipAnimVel: 1 << 5, UpdateCmd: 1 << 14,
   SkipNametagVis: 1 << 15, SkipParasol: 1 << 10, FreezeState: 1 << 21,
+  /** Ours, not the game's: keep the afterimage trail (Fox's Illusion hands it from state to state). */
+  KeepGhosts: 1 << 30,
 } as const;
+
+/** Wait and the walks keep the jab window open (Fighter_ChangeMotionState resets hitlag_mul otherwise). */
+const KEEPS_JAB_WINDOW = (msid: number) => msid >= MS.Wait && msid <= MS.WalkFast;
 
 function newFighter(data: CharacterData): Fighter {
   const J = data.skeleton.length;
@@ -34,6 +40,10 @@ function newFighter(data: CharacterData): Fighter {
     animFirst: false, frameAccum: 0,
     script: { move: null, pc: 0, timer: 0, frameCount: 0, loopStack: [], callStack: [] },
     cmdVars: [0, 0, 0, 0], throwFlags: 0, allowInterrupt: false, reflecting: false,
+    jabWindow: 0, jabCombo: false, jabRapid: false, jabLast: 0, jabPresses: 0,
+    smash: { state: Smash.None, frames: 0, hold: 0, rate: 1, sfx: false },
+    rootPos: { x: 0, y: 0, z: 0 }, rootDelta: { x: 0, y: 0, z: 0 }, xRot: NaN,
+    shieldHealth: data.common.shield_start_health ?? 60, lightshield: 0, shielding: false, ghosts: [],
     hitboxes: Array.from({ length: 4 }, (_, id): HitboxState => ({ active: false, id, group: 0, bone: 0, damage: 0, size: 0, offset: [0, 0, 0], angle: 0, kbg: 0, bkb: 0, wkb: 0, element: 0, sfxLevel: 0, sfxKind: 0, pos: [0, 0], prevPos: [0, 0], fresh: true })),
     input: { lx: 0, ly: 0, plx: 0, ply: 0, cx: 0, cy: 0, pcx: 0, pcy: 0, trigger: 0, ptrigger: 0, held: 0, pheld: 0, pressed: 0, released: 0 },
     hasPrevInput: false,
@@ -52,6 +62,8 @@ export class Engine implements EngineApi {
   frame = 0;
   stage: StageData = { segments: [], blast: [-1e9, 1e9, -1e9, 1e9], spawn: [0, 0] };
   readonly events: EngineEvent[] = [];
+  /** Projectiles in flight (Fox's blaster shots). */
+  readonly projectiles: Projectile[] = [];
   plugins: Plugin[] = [];
   /** Effective attributes this frame (plugins may change them), and the common constants. */
   a: Named;
@@ -117,6 +129,8 @@ export class Engine implements EngineApi {
     fp.jumpsUsed = 1;
     fp.floor = null;
     fp.dead = false;
+    fp.shielding = false;
+    fp.shieldHealth = this.c.shield_start_health ?? fp.shieldHealth;
     this.changeMotion(MS.Fall, MF.None, 0, 1);
   }
 
@@ -165,6 +179,11 @@ export class Engine implements EngineApi {
     this.procUpdate();
     this.procMap();
     this.updateHitboxes();
+    this.updateProjectiles();
+    // The shield regenerates while it is down (Fighter_procUpdate: shield_health += x27C).
+    if (!fp.shielding && fp.shieldHealth < this.c.shield_start_health) {
+      fp.shieldHealth = f(Math.min(this.c.shield_start_health, fp.shieldHealth + this.c.shield_regen));
+    }
 
     const [l, r, b] = this.stage.blast;
     if (fp.pos.x < l || fp.pos.x > r || fp.pos.y < b) {
@@ -177,10 +196,38 @@ export class Engine implements EngineApi {
 
   // ---- Fighter_procAnim
   private procAnim(): void {
-    const fp = this.fighter;
     this.animStep();
+    this.smashChargeTick();
     this.def().anim?.(this);
-    void fp;
+  }
+
+  /** ftCo_800DEF38: count charge frames; a full charge releases on its own. */
+  private smashChargeTick(): void {
+    const s = this.fighter.smash;
+    if (s.state !== Smash.Charging) return;
+    s.frames++;
+    if (s.frames >= s.hold) {
+      s.frames = s.hold;
+      s.state = Smash.Release;
+      this.setAnimRate(s.rate);
+    }
+    if (!s.sfx && s.frames >= this.c.smash_charge_sound_frame) { this.playSound(0x7b); s.sfx = true; }
+  }
+
+  /** ftCo_800DF0D0: holding A turns a pending charge into a charge; letting go releases it. */
+  private smashChargeInput(): void {
+    const fp = this.fighter, s = fp.smash;
+    if (s.state === Smash.PreCharge) {
+      if (fp.input.held & BTN.A) {
+        s.state = Smash.Charging;
+        s.rate = fp.animRate;
+        s.sfx = false;
+        this.setAnimRate(0);
+      } else s.state = Smash.None;
+    } else if (s.state === Smash.Charging && !(fp.input.held & BTN.A)) {
+      s.state = Smash.Release;
+      this.setAnimRate(s.rate);
+    }
   }
 
   /** ftAnim_8006EBA4: advance the animation, then run the script at the new frame. */
@@ -205,6 +252,23 @@ export class Engine implements EngineApi {
     }
     if ((fp.move.animFlags & 0x20000000) && fp.animFrame < prev) fp.frameAccum = f(fp.frameAccum + prev + fp.animRate);
     fp.poseDirty = true;
+    if (fp.move.animFlags & 0x80000000) this.sampleRootMotion();
+  }
+
+  /** ftAnim: TransN's translation this frame (scaled like the model) and its change since the last one. */
+  private sampleRootMotion(): void {
+    const fp = this.fighter, joint = this.data.transN, o = joint * 9;
+    let x = this.rest[o + 6], y = this.rest[o + 7], z = this.rest[o + 8];
+    for (const t of fp.move?.anim?.tracks[joint] ?? []) {
+      if (t.channel < 5 || t.channel > 7) continue;
+      const v = sampleTrack(t, fp.animFrame);
+      if (v === undefined) continue;
+      if (t.channel === 5) x = v; else if (t.channel === 6) y = v; else z = v;
+    }
+    const s = this.data.modelScale, r = fp.rootPos, d = fp.rootDelta;
+    x = f(x * s); y = f(y * s); z = f(z * s);
+    d.x = f(x - r.x); d.y = f(y - r.y); d.z = f(z - r.z);
+    r.x = x; r.y = y; r.z = z;
   }
 
   isFramesRemaining(): boolean { return !this.fighter.animDone; }
@@ -238,6 +302,7 @@ export class Engine implements EngineApi {
     inp.held = held;
     inp.pressed = (held & ((inp.pheld ^ held) >>> 0)) >>> 0;
     inp.released = (inp.pheld & ((inp.pheld ^ held) >>> 0)) >>> 0;
+    this.smashChargeInput();
 
     const clamp = (v: number) => (v > 254 ? 254 : v);
     t.lxDuration = clamp(t.lxDuration + 1);
@@ -274,6 +339,10 @@ export class Engine implements EngineApi {
     if (this.jumpInput()) { k.jumpPrev = k.jump; k.jump = 0; } else if (k.jump < 255) k.jump++;
     if ((pr & BTN.B) && inp.ly >= c.special_lw_threshold) { k.upBPrev = k.upB; k.upB = 0; } else if (k.upB < 255) k.upB++;
     if ((pr & BTN.B) && inp.ly < -c.special_lw_threshold) k.downB = 0; else if (k.downB < 255) k.downB++;
+    // ftCo_SpecialS_HasInput and ftCo_800D67C4 (side and neutral B).
+    if ((pr & BTN.B) && Math.abs(inp.lx) >= c.special_s_threshold) k.sideB = 0; else if (k.sideB < 255) k.sideB++;
+    if ((pr & BTN.B) && Math.abs(inp.lx) < c.special_s_threshold && Math.abs(inp.ly) < c.special_lw_threshold) k.neutralB = 0;
+    else if (k.neutralB < 255) k.neutralB++;
 
     this.def().iasa?.(this);
   }
@@ -321,10 +390,13 @@ export class Engine implements EngineApi {
     fp.local.set(this.rest);
     const move = fp.move;
     if (move?.anim) {
-      applyAnim(move.anim, fp.animFrame, fp.local);
+      applyAnim(move.anim, Math.max(0, fp.animFrame), fp.local);
       // Root-motion animations: the game moves TransN's translation into the fighter's velocity.
       if (move.animFlags & 0x80000000) { const o = this.data.transN * 9; fp.local[o + 6] = fp.local[o + 7] = fp.local[o + 8] = 0; }
     }
+    // ftPartSetRotX on XRotN (Firefox points Fox along his flight).
+    const xRotN = this.data.parts[2];
+    if (!Number.isNaN(fp.xRot) && xRotN !== undefined) fp.local[xRotN * 9] = fp.xRot;
     // Root: facing rotation (ftPartSetRotY(fp, 0, pi/2 * facing)) and model scale.
     fp.local[1] = Math.PI / 2 * fp.facing;
     const s = this.data.modelScale;
@@ -348,9 +420,14 @@ export class Engine implements EngineApi {
     fp.facing1 = fp.facing;
     if (!(flags & MF.SkipHit)) for (const h of fp.hitboxes) h.active = false;
     fp.reflecting = false;
+    fp.shielding = false; // the shield states raise it again
     if (!(flags & MF.KeepFastFall)) fp.fallFast = false;
     fp.floorSkip = null;
     fp.lstickAngle = 0;
+    fp.xRot = NaN;
+    fp.smash.state = Smash.None;
+    if (!KEEPS_JAB_WINDOW(msid)) fp.jabWindow = 0;
+    if (!(flags & MF.KeepGhosts)) fp.ghosts.length = 0;
     const behavior = this.behaviors.get(def.move) ?? null;
     const move = this.data.moves.get(def.move) ?? null;
     fp.move = move;
@@ -362,13 +439,29 @@ export class Engine implements EngineApi {
     // ftAnim_8006EBE8 + ftAnim_8006E9B4: request the animation, first interpret does not advance.
     fp.animFrame = f(animStart ? animStart - animSpeed : 0);
     fp.animFirst = true;
-    if (animStart) this.animAdvance();
-    startScript(fp, move, animStart);
-    this.animAdvance();
-    fp.poseDirty = true;
-    // Script frame 0 (or the frame we started at).
-    if (flags & MF.UpdateCmd) runScript(fp, this, true);
-    else runScript(fp, this, false);
+    const d = fp.rootDelta;
+    if (def.poseOnly) {
+      // anim_id -1: no animation runs (the frame reads anim_start - rate) and no script. The move's
+      // animation is only there for the renderer.
+      fp.animFrame = f(animStart - animSpeed);
+      fp.animDone = true;
+      startScript(fp, null, 0);
+      d.x = d.y = d.z = 0;
+      fp.poseDirty = true;
+    } else {
+      const rootMotion = !!move && (move.animFlags & 0x80000000) !== 0;
+      if (animStart) { this.animAdvance(); d.x = d.y = d.z = 0; }
+      startScript(fp, move, animStart);
+      this.animAdvance();
+      fp.poseDirty = true;
+      // The first frame of a root-motion animation carries no motion; one started mid-way keeps its
+      // speed. Without root motion there is none to read.
+      if (!rootMotion || !animStart) d.x = d.y = d.z = 0;
+      else if (!(flags & MF.SkipAnimVel) && fp.ga === GA.Ground) fp.selfVel.x = fp.grVel = f(d.z * fp.facing);
+      // Script frame 0 (or the frame we started at).
+      if (flags & MF.UpdateCmd) runScript(fp, this, true);
+      else runScript(fp, this, false);
+    }
     // Leaving a root-motion animation clamps ground speed to dash speed.
     if (hadRootMotion && !(move && move.animFlags & 0x80000000)) clampGroundVel(fp, this.a.dash_max_velocity);
     void behavior;
@@ -411,7 +504,16 @@ export class Engine implements EngineApi {
       case 'airborne':
         if (c.state === 0) this.toGround();
         else if (c.state === 1) this.toAirKeepJumps(10);
+        else if (c.state === 2) this.toAirNoJumps();
         break;
+      case 'jab_combo': if (!c.disabled) fp.jabCombo = true; break;
+      case 'rapid_jab': fp.jabRapid = c.state !== 0; break;
+      case 'smash_charge': {
+        // ftCo_800DEE84: pending until the input step sees A still held.
+        const s = fp.smash;
+        s.state = Smash.PreCharge; s.frames = 0; s.hold = c.frames;
+        break;
+      }
       default: break;
     }
   }
@@ -459,7 +561,37 @@ export class Engine implements EngineApi {
     for (const p of this.plugins) p.landing?.(this, lag);
   }
 
-  // ------------------------------------------------------------------ hitboxes (for page reactions)
+  // ------------------------------------------------------------------ joints and projectiles
+  /** World position (Melee units) of a point in a joint's space (lb_8000B1CC). */
+  jointPoint(joint: number, ox: number, oy: number, oz: number): [number, number] {
+    this.updatePose();
+    const fp = this.fighter, w = fp.world, m = joint * 12;
+    return [
+      f(fp.pos.x + w[m] * ox + w[m + 1] * oy + w[m + 2] * oz + w[m + 3]),
+      f(fp.pos.y + w[m + 4] * ox + w[m + 5] * oy + w[m + 6] * oz + w[m + 7]),
+    ];
+  }
+
+  /** Fires a straight-flying projectile (it_8029C504: angle, speed, lifetime in frames). */
+  fireProjectile(kind: string, x: number, y: number, angle: number, speed: number, lifetime: number): Projectile {
+    const p: Projectile = { kind, x, y, prevX: x, prevY: y, vx: f(speed * Math.cos(angle)), vy: f(speed * Math.sin(angle)), angle, age: 0, lifetime };
+    this.projectiles.push(p);
+    this.events.push({ type: 'projectile', projectile: p, frame: this.frame });
+    return p;
+  }
+
+  private updateProjectiles(): void {
+    const list = this.projectiles;
+    let n = 0;
+    for (const p of list) {
+      p.prevX = p.x; p.prevY = p.y;
+      p.x = f(p.x + p.vx); p.y = f(p.y + p.vy);
+      if (++p.age < p.lifetime) list[n++] = p;
+    }
+    list.length = n;
+  }
+
+  // ------------------------------------------------------------------ hitboxes (debug draw, plugins)
   private updateHitboxes(): void {
     const fp = this.fighter;
     let any = false;

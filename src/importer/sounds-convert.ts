@@ -6,10 +6,11 @@ import { reachableScripts, soundIds } from './subaction';
 import { ftDataRoot, type ActionEntry } from './actions';
 import type { OutFile, Sources, Log } from './pipeline';
 
-export { HIT_SOUNDS } from '../shared/hitsounds';
-import { HIT_SOUNDS } from '../shared/hitsounds';
-/** Sounds the engine plays itself: fast fall (ftcommon.c), landing thud (ftaction.c 0x46). */
-export const ENGINE_SOUNDS = { fastFall: 150, landing: 70 };
+/**
+ * Sounds the engine plays itself: fast fall (ftcommon.c), landing thud (ftaction.c 0x46), blaster
+ * shots (ftfoxspecialn.c foxSFX), smash charge (ft_0DF0.c), shield on/off (ftCo_Guard.c).
+ */
+export const ENGINE_SOUNDS = { fastFall: 150, landing: 70, laser: 110103, laserBack: 110106, smashCharge: 123, shieldOn: 110, shieldOff: 127 };
 
 export interface SoundDef {
   name: string;
@@ -37,13 +38,9 @@ export function convertSounds(sources: Sources, plfx: Archive, actions: ActionEn
     const v = plfx.s32(sfxTable + 4 * i);
     if (v > 0) { ftSfx[n] = v; use(v, n); }
   });
-  use(ENGINE_SOUNDS.fastFall, 'fastfall');
-  use(ENGINE_SOUNDS.landing, 'landing');
-  HIT_SOUNDS.forEach((id, i) => { if (id < 10000) use(id, `hit_k${Math.floor(i / 3)}_s${i % 3}`); });
   // Clearer names for the ones the engine itself refers to.
+  for (const [name, id] of Object.entries(ENGINE_SOUNDS)) { use(id, name); users.set(id, name); }
   users.set(401, 'footstep');
-  users.set(ENGINE_SOUNDS.landing, 'landing');
-  users.set(ENGINE_SOUNDS.fastFall, 'fastfall');
 
   const files: OutFile[] = [];
   const defs = new Map<string, Record<string, SoundDef>>();

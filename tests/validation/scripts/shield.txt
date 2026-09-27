@@ -1,0 +1,13 @@
+# Shield held and dropped, roll forward, spot dodge, jump out of shield.
+200 R
+230
+280 R
+285 R sx=127
+286
+340 R
+345 R sy=-127
+346
+400 R
+405 R X
+406
+470

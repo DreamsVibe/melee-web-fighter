@@ -48,7 +48,7 @@ export function newEngine(data: CharacterData, x = 0): Engine {
 /** A pad from a compact description: buttons as letters, sx/sy/cx/cy as -127..127, l/r 0..255. */
 export function pad(desc: { buttons?: string; sx?: number; sy?: number; cx?: number; cy?: number; l?: number; r?: number } = {}): PadState {
   const p = emptyPad();
-  const B: Record<string, number> = { A: 0x100, B: 0x200, X: 0x400, Y: 0x800, Z: 0x10, R: 0x20, L: 0x40, S: 0x1000, D: 0x4 };
+  const B: Record<string, number> = { A: 0x100, B: 0x200, X: 0x400, Y: 0x800, Z: 0x10, R: 0x20, L: 0x40, S: 0x1000, D: 0x4, U: 0x8 };
   for (const ch of desc.buttons ?? '') p.buttons |= B[ch] ?? 0;
   p.stickX = desc.sx ?? 0; p.stickY = desc.sy ?? 0; p.cX = desc.cx ?? 0; p.cY = desc.cy ?? 0;
   p.trigL = desc.l ?? 0; p.trigR = desc.r ?? 0;

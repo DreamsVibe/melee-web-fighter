@@ -4,7 +4,7 @@ import { AdapterDecoder, BTN, emptyPad, type PadState } from '../engine/pad';
 import { DEFAULT_GAMEPAD, type GamepadMapping } from '../shared/settings';
 
 const KEY_BUTTONS: Record<string, number> = {
-  KeyJ: BTN.A, KeyK: BTN.B, Space: BTN.X, KeyI: BTN.X, KeyL: BTN.R, KeyU: BTN.Z, KeyO: BTN.DDOWN, Enter: BTN.START,
+  KeyJ: BTN.A, KeyK: BTN.B, Space: BTN.X, KeyI: BTN.X, KeyL: BTN.R, KeyU: BTN.Z, KeyO: BTN.DDOWN, KeyP: BTN.DUP, Enter: BTN.START,
 };
 const KEY_STICK: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0],
@@ -83,7 +83,7 @@ export class InputManager {
       const btn = (i: number) => gp.buttons[i]?.pressed ?? false;
       let b = 0;
       if (btn(m.a)) b |= BTN.A; if (btn(m.b)) b |= BTN.B; if (btn(m.x)) b |= BTN.X; if (btn(m.y)) b |= BTN.Y;
-      if (btn(m.z)) b |= BTN.Z; if (btn(m.start)) b |= BTN.START; if (btn(m.dpadDown)) b |= BTN.DDOWN;
+      if (btn(m.z)) b |= BTN.Z; if (btn(m.start)) b |= BTN.START; if (btn(m.dpadDown)) b |= BTN.DDOWN; if (btn(m.dpadUp)) b |= BTN.DUP;
       const lv = gp.buttons[m.l]?.value ?? 0, rv = gp.buttons[m.r]?.value ?? 0;
       // A full trigger press is also the digital click, as on a GameCube controller.
       if (lv > 0.95 || (btn(m.l) && lv === 0)) b |= BTN.L;

@@ -35,6 +35,13 @@ export interface CharacterData {
   ecbSideOffset: number;
   /** Joint index of TransN (root motion carrier). */
   transN: number;
+  /** Joint index of each Fighter_Part (TopN, TransN, XRotN, YRotN, HipN, ... TransN2). */
+  parts: number[];
+  /** Joints the shield bubble and held items attach to (ftData +0x8 → +0x11, +0x10). */
+  shieldJoint: number;
+  itemJoint: number;
+  /** Article (projectile) attributes, e.g. the blaster shot's lifetime. */
+  articles: Record<string, Named>;
   /** Named sound ids from the character's sound table (jump, doubleJump, ...). */
   sfx: Named;
   /** Sound id by name, for scripts and plugins. */
@@ -72,6 +79,19 @@ export interface ScriptState {
 }
 
 export interface Ecb { top: number; bottom: number; left: number; right: number; sideY: number }
+
+/** Smash attack charge (SmashAttr, ft/ft_0DF0.c). */
+export const enum Smash { None = 0, PreCharge = 1, Charging = 2, Release = 3 }
+
+/** A projectile the fighter fired (Fox's blaster shot). Pure data; the renderer draws it. */
+export interface Projectile {
+  kind: string;
+  x: number; y: number; prevX: number; prevY: number;
+  vx: number; vy: number;
+  angle: number;
+  age: number;
+  lifetime: number;
+}
 
 /** Input as Fighter_procInput builds it (lstick[0] current, [1] previous frame). */
 export interface FighterInput {
@@ -113,6 +133,26 @@ export interface Fighter {
   allowInterrupt: boolean;
   hitboxes: HitboxState[];
   reflecting: boolean;
+  // Jabs: frames left to chain the next jab (hitlag_mul), combo/rapid flags from the script
+  // (x2218_b1/b2), the last jab (unk_msid) and A presses/releases counted for rapid jab (x1A54).
+  jabWindow: number;
+  jabCombo: boolean;
+  jabRapid: boolean;
+  jabLast: number;
+  jabPresses: number;
+  // Smash charge.
+  smash: { state: Smash; frames: number; hold: number; rate: number; sfx: boolean };
+  /** Root motion: TransN's animated translation and its change this frame (x68C / x6A4). */
+  rootPos: { x: number; y: number; z: number };
+  rootDelta: { x: number; y: number; z: number };
+  /** ftPartSetRotX on XRotN (Firefox points Fox along his flight), NaN when the animation's own. */
+  xRot: number;
+  // Shield (shield_health, lightshield_amount, x221B_b0).
+  shieldHealth: number;
+  lightshield: number;
+  shielding: boolean;
+  /** Recent positions for afterimages (Fox's Illusion keeps four), empty when none. */
+  ghosts: number[];
   // Input and its timers.
   input: FighterInput;
   hasPrevInput: boolean;
@@ -151,7 +191,8 @@ export type EngineEvent =
   | { type: 'land'; frame: number; lag: number; lcancel: boolean }
   | { type: 'state'; from: string; to: string; frame: number }
   | { type: 'ko'; frame: number }
-  | { type: 'hitbox'; hitbox: HitboxState; frame: number };
+  | { type: 'hitbox'; hitbox: HitboxState; frame: number }
+  | { type: 'projectile'; projectile: Projectile; frame: number };
 
 /** Stable API handed to plugins and behaviors. */
 export interface EngineApi {

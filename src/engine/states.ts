@@ -1,7 +1,8 @@
-// v1 motion states, ported from the decomp's ft/kinds/ftCommon/ftCo_*.c. Each state has the game's
-// four callbacks: anim (animation ended / timers), iasa (interrupts, run after input), phys, coll.
-// Checks for states v1 does not have (attacks on the ground, shield, grabs, items, other specials)
-// are left out: "inputs that would enter them do nothing".
+// Movement motion states, ported from the decomp's ft/kinds/ftCommon/ftCo_*.c. Each state has the
+// game's four callbacks: anim (animation ended / timers), iasa (interrupts, run after input), phys,
+// coll. Ground attacks, shield, rolls, grabs and taunts are in groundmoves.ts; a character's specials
+// in its behavior modules. Checks for things the web version has no use for (items, ledges, other
+// fighters) are left out.
 import type { Engine } from './engine';
 import { MF } from './engine';
 import { BTN } from './pad';
@@ -11,58 +12,29 @@ import {
   groundFriction, selfAccelToVelClamped, selfFromGround,
 } from './physics';
 import { airCollision, groundCollision, EdgeMode, isOnPlatform } from './collision';
+import { def, MS } from './statedefs';
+import {
+  appealCheck, attack1Check, attackDashCheck, attackHi4Check, attackS4DashCheck, attacksS4ToLw3, catchCheck,
+  charAppealCheck, dashCatchCheck, dashRollCheck, groundIasa, guardCheck, guardFromRunCheck, specialAirCheck,
+  specialHiCheck, specialLwCheck, specialNCheck, specialSCheck,
+} from './groundmoves';
+
+export { STATES, MS, specials, type StateDef, type SpecialHooks } from './statedefs';
 
 const f = Math.fround;
 const abs = Math.abs;
-
-export interface StateDef {
-  id: number;
-  name: string;
-  /** Move (submotion) whose animation and script this state plays. */
-  move: string;
-  anim?(e: Engine): void;
-  iasa?(e: Engine): void;
-  phys?(e: Engine): void;
-  coll?(e: Engine): void;
-}
-
-export const MS = {
-  Wait: 14, WalkSlow: 15, WalkMiddle: 16, WalkFast: 17, Turn: 18, TurnRun: 19, Dash: 20, Run: 21, RunBrake: 23,
-  KneeBend: 24, JumpF: 25, JumpB: 26, JumpAerialF: 27, JumpAerialB: 28, Fall: 29, FallAerial: 32, FallSpecial: 35,
-  Squat: 39, SquatWait: 40, SquatRv: 41, Landing: 42, LandingFallSpecial: 43,
-  AttackAirN: 65, AttackAirF: 66, AttackAirB: 67, AttackAirHi: 68, AttackAirLw: 69,
-  LandingAirN: 70, LandingAirF: 71, LandingAirB: 72, LandingAirHi: 73, LandingAirLw: 74,
-  EscapeAir: 236, Pass: 244,
-} as const;
-
-export const STATES = new Map<number, StateDef>();
-const def = (d: StateDef) => STATES.set(d.id, d);
-
-/** Behavior hooks a character can register (Fox registers down special). */
-export interface SpecialHooks { groundLw?(e: Engine): void; airLw?(e: Engine): void }
-export const specials: SpecialHooks = {};
 
 // ============================================================================ shared checks
 const lx = (e: Engine) => e.fighter.input.lx;
 const ly = (e: Engine) => e.fighter.input.ly;
 
-/** ftCo_800D68C0: down special on the ground (down + B this frame). */
-function specialLw(e: Engine): boolean {
-  if (!specials.groundLw || e.fighter.counters.downB !== 0) return false;
-  specials.groundLw(e);
-  return true;
-}
-
-/** ftCo_SpecialAir_CheckInput, down special only. */
-function specialAir(e: Engine): boolean {
-  const fp = e.fighter;
-  if (!(fp.input.pressed & BTN.B)) return false;
-  if (fp.input.ly <= -e.c.special_lw_threshold && specials.airLw) { specials.airLw(e); return true; }
-  return false;
+/** Every ground special, then a grab, the smashes and tilts and a jab (the head of most ground lists). */
+function groundAttacks(e: Engine): boolean {
+  return specialSCheck(e) || specialHiCheck(e) || specialNCheck(e) || specialLwCheck(e) || catchCheck(e) || attacksS4ToLw3(e) || attack1Check(e);
 }
 
 /** ftCo_Jump_CheckInput. */
-function jumpCheck(e: Engine): boolean {
+export function jumpCheck(e: Engine): boolean {
   const input = e.jumpInput();
   if (!input) return false;
   kneeBendEnter(e, input);
@@ -78,7 +50,7 @@ function relaxedJumpCheck(e: Engine): boolean {
 }
 
 /** ftCo_Dash_CheckInput. */
-function dashCheck(e: Engine): boolean {
+export function dashCheck(e: Engine): boolean {
   const fp = e.fighter, c = e.c;
   if (abs(lx(e)) >= c.dash_stick_threshold && fp.timers.lxTimer < c.dash_stick_window) {
     if (lx(e) * fp.facing < 0) turnEnterSmash(e);
@@ -89,25 +61,25 @@ function dashCheck(e: Engine): boolean {
 }
 
 /** ftCo_Turn_CheckInput. */
-function turnCheck(e: Engine): boolean {
+export function turnCheck(e: Engine): boolean {
   if (lx(e) * e.fighter.facing <= e.c.turn_stick_threshold) { turnEnter(e, MS.Turn, 0, e.a.standing_turn_frames, 0); return true; }
   return false;
 }
 
 /** ftCo_Walk_CheckInput. */
-function walkCheck(e: Engine): boolean {
+export function walkCheck(e: Engine): boolean {
   if (lx(e) * e.fighter.facing >= e.c.walk_stick_threshold) { walkEnter(e, 0); return true; }
   return false;
 }
 
 /** ftCo_800D5FB0: crouch. */
-function squatCheck(e: Engine): boolean {
+export function squatCheck(e: Engine): boolean {
   if (ly(e) < -e.c.squat_threshold) { squatEnter(e); return true; }
   return false;
 }
 
 /** ftCo_80099F1C: tapped down while standing on a platform. */
-function passInput(e: Engine): boolean {
+export function passInput(e: Engine): boolean {
   const fp = e.fighter, c = e.c;
   return fp.input.ly <= -c.pass_stick_threshold && fp.timers.lyTimer < c.pass_stick_window && isOnPlatform(fp);
 }
@@ -124,7 +96,7 @@ function passCheck(e: Engine): boolean {
 }
 
 /** ftCo_800CB870 → ftCo_JumpAerial_CheckInput(false): double jump. */
-function airJumpCheck(e: Engine): boolean {
+export function airJumpCheck(e: Engine): boolean {
   const fp = e.fighter, c = e.c;
   if (fp.jumpsUsed < e.a.max_jumps &&
     ((fp.input.ly >= c.tap_jump_threshold && fp.timers.lyTimer < c.tap_jump_window) || (fp.input.pressed & (BTN.X | BTN.Y)))) {
@@ -153,8 +125,8 @@ function aerialCheck(e: Engine): boolean {
 }
 
 /** The common air interrupt list (ftCo_Fall_IASA_Inner, minus items and tether). */
-function airIasa(e: Engine, airDodge = true): boolean {
-  if (specialAir(e)) return true;
+export function airIasa(e: Engine, airDodge = true): boolean {
+  if (specialAirCheck(e)) return true;
   if (airDodge && airDodgeCheck(e)) return true;
   if (aerialCheck(e)) return true;
   if (airJumpCheck(e)) return true;
@@ -320,7 +292,7 @@ function fallAerialEnter(e: Engine): void {
 }
 
 /** ftCo_80096900 → FallSpecial (helpless fall). */
-function fallSpecialEnter(e: Engine, xC: number, x10: number, allowInterrupt: boolean, mobility: number, landingLag: number): void {
+export function fallSpecialEnter(e: Engine, xC: number, x10: number, allowInterrupt: boolean, mobility: number, landingLag: number): void {
   const fp = e.fighter, a = e.a;
   e.changeMotion(MS.FallSpecial, MF.KeepFastFall, 0, 1);
   fp.mv.fsMobility = f(a.air_drift_max * mobility);
@@ -339,12 +311,12 @@ function squatEnter(e: Engine): void {
   fp.mv.passArmed = 0;
 }
 
-function squatWaitEnter(e: Engine, flags: number): void {
+export function squatWaitEnter(e: Engine, flags: number): void {
   e.changeMotion(MS.SquatWait, flags, 0, 1);
 }
 
 /** ftCo_8009A228: drop through a platform. */
-function passEnter(e: Engine): void {
+export function passEnter(e: Engine): void {
   const fp = e.fighter, c = e.c;
   const platform = fp.floor;
   e.toAir();
@@ -363,20 +335,20 @@ function landingEnter(e: Engine, msid: number, allowInterrupt: boolean, rate: nu
   fp.mv.landingAllow = allowInterrupt ? 1 : 0;
 }
 
-function landingBasic(e: Engine): void {
+export function landingBasic(e: Engine): void {
   landingEnter(e, MS.Landing, true, 1);
   e.emitLanding(e.a.normal_landing_lag, false);
 }
 
 /** ftCo_LandingFallSpecial_Enter: the wavedash/waveland landing. */
-function landingFallSpecialEnter(e: Engine, allowInterrupt: boolean, lag: number): void {
+export function landingFallSpecialEnter(e: Engine, allowInterrupt: boolean, lag: number): void {
   const landingFrames = frameCountOf(e, 'Landing');
   landingEnter(e, MS.LandingFallSpecial, allowInterrupt, f((0.1 + landingFrames) / lag));
   e.emitLanding(lag, false);
 }
 
 /** ft_80082B1C: landing from a jump or fall; soft landings go straight to Wait. */
-function landFromAir(e: Engine): void {
+export function landFromAir(e: Engine): void {
   if (e.fighter.selfVel.y > -e.c.landing_speed_threshold) { waitEnter(e); e.emitLanding(0, false); }
   else landingBasic(e);
 }
@@ -443,7 +415,7 @@ function escapeAirEnter(e: Engine, timer: number): void {
 
 // ============================================================================ collision callbacks
 /** ft_80084280 (Wait, Walk, Landing): stop at edges when facing them, otherwise fall off. */
-function collTeeter(e: Engine): void {
+export function collTeeter(e: Engine): void {
   const fp = e.fighter;
   if (groundCollision(fp, e.stage, e.moveStart, EdgeMode.Teeter)) return;
   if (fp.envFlags & ENV.Edge) {
@@ -455,14 +427,19 @@ function collTeeter(e: Engine): void {
 }
 
 /** ft_800844EC / ft_80083F88: run off edges. */
-function collFallOff(e: Engine): void {
+export function collFallOff(e: Engine): void {
   if (!groundCollision(e.fighter, e.stage, e.moveStart, EdgeMode.Fall)) fallEnter(e);
+}
+
+/** ft_80084104: attacks and dodges stop at an edge instead of running off it. */
+export function collStop(e: Engine): void {
+  if (!groundCollision(e.fighter, e.stage, e.moveStart, EdgeMode.Stop)) fallEnter(e);
 }
 
 /** ftCo_80096CC8: platforms are solid unless the stick is held down. */
 const acceptPlatform = (e: Engine) => () => e.fighter.input.ly > e.c.fall_platform_pass_threshold;
 
-function collAirLand(e: Engine, land: (e: Engine) => void, platformCallback = true): void {
+export function collAirLand(e: Engine, land: (e: Engine) => void, platformCallback = true): void {
   if (airCollision(e.fighter, e.stage, e.moveStart, platformCallback ? acceptPlatform(e) : null)) land(e);
 }
 
@@ -480,14 +457,7 @@ def({
       e.animStep();
     }
   },
-  iasa(e) {
-    if (specialLw(e)) return;
-    if (jumpCheck(e)) return;
-    if (dashCheck(e)) return;
-    if (squatCheck(e)) return;
-    if (turnCheck(e)) return;
-    walkCheck(e);
-  },
+  iasa: groundIasa,
   phys(e) { groundFriction(e.fighter, e.a, e.c); },
   coll: collTeeter,
 });
@@ -508,10 +478,9 @@ for (const [id, name] of [[MS.WalkSlow, 'WalkSlow'], [MS.WalkMiddle, 'WalkMiddle
     },
     iasa(e) {
       const fp = e.fighter;
-      if (specialLw(e)) return;
-      if (jumpCheck(e)) return;
-      if (dashCheck(e)) return;
-      if (squatCheck(e)) return;
+      if (catchCheck(e) || specialSCheck(e) || specialHiCheck(e) || specialNCheck(e) || specialLwCheck(e)) return;
+      if (attacksS4ToLw3(e) || attack1Check(e) || guardCheck(e) || appealCheck(e)) return;
+      if (jumpCheck(e) || dashCheck(e) || squatCheck(e)) return;
       // ft_8008A244: back to Wait when the stick lets go or points back.
       if (fp.input.lx * fp.facing < 0 || abs(fp.input.lx) < e.c.walk_stick_threshold) { waitEnter(e); return; }
       // ftWalkCommon_800DFEC8: change walk speed, keeping the phase of the step.
@@ -554,10 +523,11 @@ def({
   iasa(e) {
     const fp = e.fighter;
     if (fp.mv.turnJustTurned) fp.input.pressed |= fp.mv.turnBuffered;
+    // Attacks out of a turn face the new way; the turn itself flips on its own frame.
     if (!fp.mv.turnHasTurned) fp.facing = -fp.facing;
-    if (specialLw(e)) return;
+    if (specialSCheck(e) || specialLwCheck(e) || specialHiCheck(e) || catchCheck(e) || attacksS4ToLw3(e) || attack1Check(e)) return;
     if (!fp.mv.turnHasTurned) fp.facing = -fp.facing;
-    if (jumpCheck(e)) return;
+    if (guardCheck(e) || appealCheck(e) || jumpCheck(e)) return;
     // fn_800C9C2C: a smash input toward the new direction during the turn makes it a dash turn.
     if (fp.input.lx * fp.mv.turnFacingAfter >= e.c.dash_stick_threshold && fp.timers.lxTimer < e.c.dash_stick_window) fp.mv.turnX8 = fp.mv.turnFacingAfter;
     if (fp.mv.turnJustTurned && fp.mv.turnX8 && fp.input.lx * fp.mv.turnFacingAfter >= e.c.dash_stick_threshold) { dashEnter(e, 0); return; }
@@ -575,20 +545,30 @@ def({
   iasa(e) {
     const fp = e.fighter, c = e.c;
     const frame = fp.animFrame;
-    let applyFriction = false;
-    const block42 = () => {
-      if (relaxedJumpCheck(e)) return;
-      if (!fp.cmdVars[0]) return;
+    // ftCo_Dash_IASA. Whatever the dash turns into (except a grab, dash attack or run), this dash's
+    // leftover speed is cut afterwards; that is what makes dash dancing work.
+    const block42 = (): boolean => {
+      if (appealCheck(e)) return true;
+      if (relaxedJumpCheck(e)) return false;
+      if (!fp.cmdVars[0]) return false;
       if (fp.input.lx * fp.facing >= c.run_stick_threshold) runEnter(e, 0);
+      return false;
     };
-    if (fp.mv.dashX4 && frame <= c.dash_iasa_frames_a) block42();
-    else if (frame <= c.dash_iasa_frames_c) {
-      // Dash back: the new state is entered, then this dash's leftover speed is cut (ftCo_Dash_IASA).
-      if (fp.input.lx * fp.facing < 0 && dashCheck(e)) applyFriction = true;
-      else block42();
+    let applyFriction: boolean;
+    if (fp.mv.dashX4 && frame <= c.dash_iasa_frames_a) {
+      if (specialSCheck(e)) applyFriction = true;
+      else if (dashCatchCheck(e)) return;
+      else if (attackS4DashCheck(e) || (frame <= c.dash_iasa_frames_b && dashRollCheck(e))) applyFriction = true;
+      else applyFriction = block42();
+    } else if (frame <= c.dash_iasa_frames_c) {
+      if (specialSCheck(e)) applyFriction = true;
+      else if (dashCatchCheck(e) || attackDashCheck(e)) return;
+      else if ((fp.input.lx * fp.facing < 0 && dashCheck(e)) || guardCheck(e)) applyFriction = true;
+      else applyFriction = block42();
     } else {
-      if (dashCheck(e)) applyFriction = true;
-      else block42();
+      if (dashCatchCheck(e)) return;
+      if (dashCheck(e) || guardFromRunCheck(e)) applyFriction = true;
+      else applyFriction = block42();
     }
     if (applyFriction) fp.grVel = f(fp.grVel + -f(fp.grVel * c.dash_reverse_friction) * 1);
   },
@@ -614,7 +594,8 @@ def({
   },
   iasa(e) {
     const fp = e.fighter, c = e.c;
-    if (specialLw(e)) return;
+    if (specialSCheck(e) || specialHiCheck(e) || specialNCheck(e) || specialLwCheck(e) || dashCatchCheck(e) || attackDashCheck(e)) return;
+    if (guardFromRunCheck(e) || appealCheck(e)) return;
     if (relaxedJumpCheck(e)) return;
     if (fp.mv.runX0 <= 0 && fp.input.lx * fp.facing <= c.turnrun_stick_threshold) { turnRunEnter(e, 0); return; }
     if (!(fp.mv.runX0 <= 0)) return;
@@ -701,6 +682,8 @@ def({
   },
   iasa(e) {
     const fp = e.fighter, c = e.c;
+    // ftCo_KneeBend_IASA: up B, a grab or an up smash straight out of jump squat.
+    if (specialHiCheck(e) || catchCheck(e) || attackHi4Check(e, false)) return;
     const inp = fp.mv.jumpInput;
     if ((!(fp.input.held & (BTN.X | BTN.Y)) && inp === 2) || (fp.input.ly < c.short_hop_release_threshold && inp === 1) ||
       (fp.input.cy < c.short_hop_release_threshold && inp === 3)) fp.mv.shortHop = 1;
@@ -775,9 +758,7 @@ def({
   anim(e) { if (!e.isFramesRemaining()) squatWaitEnter(e, MF.SkipNametagVis); },
   iasa(e) {
     const fp = e.fighter;
-    if (specialLw(e)) return;
-    if (jumpCheck(e)) return;
-    if (passCheck(e)) return;
+    if (groundAttacks(e) || guardCheck(e) || appealCheck(e) || jumpCheck(e) || passCheck(e)) return;
     if (fp.mv.passArmed && fp.mv.passTimer) {
       fp.mv.passTimer -= 1;
       if (!fp.mv.passTimer && isOnPlatform(fp)) passEnter(e);
@@ -793,10 +774,8 @@ def({
     if (!e.isFramesRemaining()) { const fp = e.fighter; fp.animFrame = 0; fp.animFirst = true; fp.animDone = false; e.animStep(); }
   },
   iasa(e) {
-    if (specialLw(e)) return;
-    if (jumpCheck(e)) return;
-    if (passCheck(e)) return;
-    if (dashCheck(e)) return;
+    if (specialLwCheck(e) || specialHiCheck(e) || attacksS4ToLw3(e) || attack1Check(e) || guardCheck(e) || appealCheck(e)) return;
+    if (jumpCheck(e) || passCheck(e) || dashCheck(e)) return;
     if (e.fighter.input.ly > -e.c.squat_release_threshold) e.changeMotion(MS.SquatRv, MF.None, 0, 1);
   },
   phys(e) { groundFriction(e.fighter, e.a, e.c); },
@@ -807,7 +786,7 @@ def({
   id: MS.SquatRv, name: 'SquatRv', move: 'SquatRv',
   anim(e) { if (!e.isFramesRemaining()) waitEnter(e); },
   iasa(e) {
-    if (specialLw(e)) return;
+    if (specialLwCheck(e) || specialHiCheck(e) || attacksS4ToLw3(e) || attack1Check(e) || guardCheck(e) || appealCheck(e)) return;
     if (jumpCheck(e)) return;
     walkCheck(e);
   },
@@ -819,7 +798,7 @@ function landingIasa(e: Engine): void {
   const fp = e.fighter;
   if (fp.animFrame < e.a.normal_landing_lag) return;
   if (!fp.mv.landingAllow) return;
-  if (specialLw(e)) return;
+  if (groundAttacks(e) || guardCheck(e) || appealCheck(e)) return;
   if (jumpCheck(e)) return;
   if (dashCheck(e)) return;
   if (fp.animFrame < fp.animRate + e.a.normal_landing_lag && squatCheck(e)) return;

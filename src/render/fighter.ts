@@ -43,6 +43,7 @@ uniform vec4 uAmbient;
 uniform float uAlpha;
 uniform bool uTranslucent;
 uniform vec4 uTint;
+uniform float uGhost;
 out vec4 frag;
 void main() {
   vec4 t = uHasTex ? texture(uTex, vUV) : vec4(1.0);
@@ -53,7 +54,7 @@ void main() {
   vec3 light = uAmbient.rgb * 0.55 + uDiffuse.rgb * (0.35 + 0.75 * lambert) + rim;
   vec3 c = t.rgb * light;
   c = mix(c, uTint.rgb, uTint.a);
-  frag = vec4(c, (uTranslucent ? t.a * uAlpha * uDiffuse.a : 1.0));
+  frag = vec4(c, (uTranslucent ? t.a * uAlpha * uDiffuse.a : 1.0) * uGhost);
 }`;
 
 function compile(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
@@ -96,7 +97,7 @@ export class FighterRenderer {
 
   constructor(private gl: WebGL2RenderingContext, private model: FighterModel) {
     this.program = compile(gl, VS, FS);
-    for (const n of ['uPalette', 'uModel', 'uViewProj', 'uUVScale', 'uTex', 'uHasTex', 'uDiffuse', 'uAmbient', 'uAlpha', 'uTranslucent', 'uTint']) {
+    for (const n of ['uPalette', 'uModel', 'uViewProj', 'uUVScale', 'uTex', 'uHasTex', 'uDiffuse', 'uAmbient', 'uAlpha', 'uTranslucent', 'uTint', 'uGhost']) {
       this.u[n] = gl.getUniformLocation(this.program, n);
     }
     const { mesh } = model;
@@ -145,9 +146,10 @@ export class FighterRenderer {
 
   /**
    * Draws the fighter. `world` is 3x4 world matrices per joint (model space), `model` a column-major
-   * 4x4 placing model space in the scene, `viewProj` column-major.
+   * 4x4 placing model space in the scene, `viewProj` column-major. `ghost` below 1 draws the whole
+   * fighter see-through (afterimages).
    */
-  draw(world: Float32Array, model: Float32Array, viewProj: Float32Array, hidden: Set<number> = this.model.hidden): void {
+  draw(world: Float32Array, model: Float32Array, viewProj: Float32Array, hidden: Set<number> = this.model.hidden, ghost = 1): void {
     const gl = this.gl;
     const J = this.jointCount;
     const pal = this.paletteData;
@@ -166,6 +168,7 @@ export class FighterRenderer {
     gl.uniformMatrix4fv(this.u.uModel, false, model);
     gl.uniformMatrix4fv(this.u.uViewProj, false, viewProj);
     gl.uniform4fv(this.u.uTint, this.tint);
+    gl.uniform1f(this.u.uGhost, ghost);
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
@@ -178,8 +181,8 @@ export class FighterRenderer {
       const b = this.model.mesh.batches[bi];
       const m = this.model.materials[b.material];
       if (hidden.has(m.dobj)) continue;
-      if (m.translucent !== blending) {
-        blending = m.translucent;
+      if ((m.translucent || ghost < 1) !== blending) {
+        blending = m.translucent || ghost < 1;
         if (blending) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); }
         else { gl.disable(gl.BLEND); gl.depthMask(true); }
       }

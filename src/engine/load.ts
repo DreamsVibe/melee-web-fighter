@@ -66,6 +66,10 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
     ecbBones: info.ecb?.bones ?? [41, 55, 25, 13, 7, 4],
     ecbSideOffset: info.ecb?.sideOffset ?? 0,
     transN: info.transN ?? 1,
+    parts: info.parts ?? [],
+    shieldJoint: info.shieldJoint ?? 0,
+    itemJoint: info.itemJoint ?? 0,
+    articles: info.articles ?? {},
     sfx: info.sounds ?? {},
     soundIds,
   };

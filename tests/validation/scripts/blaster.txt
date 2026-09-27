@@ -1,0 +1,12 @@
+# Blaster: one shot, a double shot (B again during the loop), and one in the air.
+200 B
+201
+240 B
+241
+246 B
+247
+300 X
+301
+306 B
+307
+380

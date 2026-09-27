@@ -1,0 +1,15 @@
+# Dash attack out of a full run, up smash and grab out of jump squat, Illusion cut short with B.
+200 sx=127
+225 sx=127 A
+226
+300 X
+301 sy=127 A
+302
+380 X
+381 Z
+382
+460 sx=-127 B
+461
+466 B
+467
+560

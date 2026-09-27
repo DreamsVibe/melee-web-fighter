@@ -9,7 +9,7 @@ import { writeAnim } from '../shared/animfile';
 import { readActionTable, readFigatree, type ActionEntry } from './actions';
 import { convertSounds } from './sounds-convert';
 import { convertMoves } from './moves-convert';
-import { readAttributes, readCommon } from './data-convert';
+import { readAttributes, readCommon, readExtras } from './data-convert';
 
 export type Progress = (fraction: number, text: string) => void;
 export type Log = (line: string) => void;
@@ -112,7 +112,9 @@ export async function buildFolder(disc: Disc, progress: Progress, log: Log): Pro
   progress(0.8, 'Converting moves and attributes…');
   const { attributes, special } = readAttributes(plfx);
   files.push({ path: CHAR_DIR + 'attributes.json', data: json({ ...attributes, special }) });
-  files.push({ path: COMMON_DIR + 'common.json', data: json(readCommon(new Archive(sources.get('PlCo.dat')!))) });
+  const plco = new Archive(sources.get('PlCo.dat')!);
+  files.push({ path: COMMON_DIR + 'common.json', data: json(readCommon(plco)) });
+  const extras = readExtras(plfx, plco);
   const soundNames = new Map<number, string>();
   for (const f of sounds.files) if (f.path.endsWith('sounds.json')) for (const [id, d] of Object.entries(JSON.parse(f.data as string))) soundNames.set(Number(id), (d as { name: string }).name);
   const moves = convertMoves(plfx, actions, attributes, (id) => soundNames.get(id) ?? String(id));
@@ -130,7 +132,12 @@ export async function buildFolder(disc: Disc, progress: Progress, log: Log): Pro
     moves: moves.map((m) => m.name),
     // ECB bones and side offset (ftData +0x44), TransN joint (root motion).
     ecb: (() => { const x44 = plfx.ptr(plfx.rootEndingWith('ftDataFox')[1] + 0x44); return { bones: [0, 1, 2, 3, 4, 5].map((i) => plfx.s16(x44 + 2 * i)), sideOffset: plfx.f32(x44 + 12) }; })(),
-    transN: 1,
+    transN: extras.parts[1],
+    // Fighter_Part -> joint index (TopN, TransN, XRotN, ... TransN2).
+    parts: extras.parts,
+    shieldJoint: extras.shieldJoint,
+    itemJoint: extras.itemJoint,
+    articles: { laser: { lifetime: extras.laserLifetime, scale: extras.laserScale } },
   };
   files.push({ path: CHAR_DIR + 'character.json', data: json(character) });
   files.push({ path: META_PATH, data: JSON.stringify({ formatVersion: FORMAT_VERSION, importedAt: new Date().toISOString(), disc: `${disc.gameId} rev ${disc.revision}` }) });

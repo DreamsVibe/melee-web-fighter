@@ -3,11 +3,12 @@
 import { Overlay } from './overlay';
 import { BridgeClient } from './bridge-client';
 import { View } from './view';
-import { effectiveFiles, loadModel, type CharacterInfo } from '../shared/character';
+import { effectiveFiles, loadModel, text, type CharacterInfo } from '../shared/character';
 import { FighterRenderer, type FighterModel } from '../render/fighter';
 import { ortho, placement } from '../render/mat4';
 import { InputManager } from './input';
 import { DebugLayer } from './debug';
+import { EffectsLayer } from './effects';
 import { CanvasQuad } from '../render/quad';
 import { emptyPad } from '../engine/pad';
 import { withDefaults, type Settings } from '../shared/settings';
@@ -15,9 +16,9 @@ import { PageStage } from './stage';
 import { Engine } from '../engine/engine';
 import { loadCharacter } from '../engine/load';
 import { AudioPlayer } from '../audio/audio';
-import { PageReactions } from './reactions';
 import { pluginsFor } from '../plugins';
 import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
+import { FORMAT_VERSION } from '../shared/db';
 import type { Fighter } from '../engine/types';
 
 const CHAR = 'characters/fox/';
@@ -27,6 +28,7 @@ export class Game {
   readonly view = new View();
   readonly input = new InputManager();
   readonly debug = new DebugLayer();
+  readonly effects = new EffectsLayer();
   private bridge: BridgeClient;
   private gl: WebGL2RenderingContext | null = null;
   private renderer: FighterRenderer | null = null;
@@ -36,7 +38,6 @@ export class Game {
   private stage: PageStage | null = null;
   private engine: Engine | null = null;
   private audio: AudioPlayer | null = null;
-  private reactions: PageReactions | null = null;
   private settings: Settings = withDefaults({});
   private pad = emptyPad();
   private proj = new Float32Array(16);
@@ -65,6 +66,10 @@ export class Game {
     if (!this.bridge.files.has(CHAR + 'character.json')) {
       throw new Error('Fox is not imported yet. Open the extension options → Import, and pick your Melee disc.');
     }
+    const version = JSON.parse(text(this.bridge.files.get(CHAR + 'character.json')) ?? '{}').formatVersion ?? 0;
+    if (version < FORMAT_VERSION) {
+      throw new Error("Fox's data is from an older version of the extension (it has none of his special moves yet). Open the extension options → Import, and import your Melee disc again.");
+    }
     const gl = this.overlay.canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: false, antialias: true });
     if (!gl) throw new Error('WebGL2 is not available on this page.');
     this.gl = gl;
@@ -74,7 +79,6 @@ export class Game {
     this.loadAll();
     this.stage = new PageStage(this.view, { minSolidPx: this.settings.minSolidPx, minSegmentPx: this.settings.minSegmentPx, maxSegments: this.settings.maxSegments });
     this.stage.ignore.add(this.overlay.canvas);
-    this.reactions = new PageReactions(this.view, this.audio);
     this.applySettings();
     // Drop in at the top centre of the viewport.
     this.stage.update();
@@ -85,7 +89,7 @@ export class Game {
     this.overlay.onRender = () => this.render();
     this.input.onKey = (code) => { if (code === 'F9') this.debug.setEnabled(!this.debug.enabled); };
     this.overlay.addDisposer(() => {
-      this.input.destroy(); this.debug.destroy(); this.stage?.destroy(); this.audio?.destroy(); this.reactions?.restoreAll();
+      this.input.destroy(); this.debug.destroy(); this.effects.destroy(); this.stage?.destroy(); this.audio?.destroy();
     });
     this.connectAdapter();
     if (DEV) console.log('[mwf] started');
@@ -159,7 +163,6 @@ export class Game {
     if (DEV && e.frame % 300 === 0) { console.log(`[mwf] stats step ${this.stepMs.toFixed(3)} ms, stage worst frame ${this.stageMaxMs.toFixed(2)} ms, last rebuild ${this.stage!.lastScanTotalMs.toFixed(2)} ms, ${this.stage!.data.segments.length} segs`); this.stageMaxMs = 0; }
     for (const ev of e.events) {
       if (ev.type === 'sound') this.audio!.play(ev.id, ev.volume, ev.pan);
-      else if (ev.type === 'hitbox') this.reactions!.hit(ev.hitbox, e.fighter);
       else if (DEV && ev.type === 'state') console.log(`[mwf] ${e.frame} ${ev.from} -> ${ev.to} (frame ${e.fighter.animFrame}, vy ${e.fighter.selfVel.y.toFixed(2)})`);
     }
   }
@@ -199,8 +202,15 @@ export class Game {
     const [l, r, b, t] = this.view.viewport();
     ortho(this.proj, l, r, b, t, -100, 100);
     e.updatePose();
+    // Afterimages (Fox's Illusion): the same pose at the last few positions, fading out.
+    const g = fp.ghosts;
+    for (let i = g.length / 2 - 1; i >= 1; i--) {
+      placement(this.place, g[i * 2], g[i * 2 + 1], 0, 0, 1);
+      this.renderer!.draw(fp.world, this.place, this.proj, undefined, 0.5 - i * 0.12);
+    }
     placement(this.place, fp.pos.x, fp.pos.y, 0, 0, 1);
     this.renderer!.draw(fp.world, this.place, this.proj);
+    if (this.effects.draw(e, this.view)) this.quad!.draw(this.effects.canvas);
     const ctx = this.debug.begin();
     if (ctx) {
       this.debug.drawStage(ctx, this.stage!.data.segments, this.view);

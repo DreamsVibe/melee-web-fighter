@@ -2,7 +2,7 @@
 
 export interface GamepadMapping {
   /** Standard-gamepad button index for each GameCube button. */
-  a: number; b: number; x: number; y: number; z: number; l: number; r: number; start: number; dpadDown: number;
+  a: number; b: number; x: number; y: number; z: number; l: number; r: number; start: number; dpadDown: number; dpadUp: number;
   /** Axis indices: main stick x/y, c-stick x/y. Triggers use buttons l/r analog values. */
   stickX: number; stickY: number; cX: number; cY: number;
 }
@@ -21,8 +21,8 @@ export interface Settings {
 }
 
 export const DEFAULT_GAMEPAD: GamepadMapping = {
-  // Standard mapping (Xbox layout): A=0 B=1 X=2 Y=3 LB=4 RB=5 LT=6 RT=7 back=8 start=9 ... dpad down=13
-  a: 0, b: 2, x: 3, y: 1, z: 5, l: 6, r: 7, start: 9, dpadDown: 13,
+  // Standard mapping (Xbox layout): A=0 B=1 X=2 Y=3 LB=4 RB=5 LT=6 RT=7 back=8 start=9 ... dpad up=12, down=13
+  a: 0, b: 2, x: 3, y: 1, z: 5, l: 6, r: 7, start: 9, dpadDown: 13, dpadUp: 12,
   stickX: 0, stickY: 1, cX: 2, cY: 3,
 };
 
