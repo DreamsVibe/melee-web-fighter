@@ -1,4 +1,5 @@
-// Bundles the extension into dist/ with esbuild and prints a size report.
+// Bundles the extension into extension/ with esbuild and prints a size report. The output is
+// committed so the repo loads unpacked as downloaded; rebuild before committing source changes.
 //   node build.mjs            production build (minified)
 //   node build.mjs --watch    rebuild on change
 //   node build.mjs --dev      unminified, with inline source maps
@@ -9,7 +10,7 @@ import { join, relative } from 'node:path';
 
 const args = new Set(process.argv.slice(2));
 const dev = args.has('--dev') || args.has('--watch');
-const out = 'dist';
+const out = 'extension';
 const BUDGET = 300 * 1024;
 
 const entries = {

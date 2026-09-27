@@ -1,53 +1,37 @@
 # Melee Web Fighter
 
-A Chrome extension that drops Fox from Super Smash Bros. Melee onto any webpage. Every line of text,
-image and box on the page is a platform along its top edge: you can stand on it and drop through it
-(tap down, or hold down while falling), and nothing on the page is a wall or a floor you can get stuck
-under. You play him with a GameCube controller (through the official adapter), a standard gamepad or
-the keyboard. Fox never changes the page: his attacks, lasers and everything else are drawn on his
-own overlay.
+Play Fox from Super Smash Bros. Melee on any webpage. Every line of text, image and box on the page
+becomes a platform he can stand on and drop through. Play with a GameCube controller, any gamepad
+or the keyboard. Fox never changes the page: his attacks and lasers are drawn on his own overlay.
 
-The extension is code only (about 210 KB). Fox's model, animations, sounds, attributes and move
-scripts are extracted in your browser from **your own** NTSC 1.02 disc image and stored locally in
-IndexedDB. Nothing from the disc is in this repository or ever leaves your machine.
+**Right now it's just Fox, by himself** (no opponents), with his whole moveset checked frame by
+frame against the real game.
 
-## Setup
+**Nothing from the game is included.** The extension is code only (about 210 KB). Fox's model,
+animations, sounds and moves are read in your browser from **your own** Melee disc image and stored
+locally. Nothing is uploaded anywhere.
 
-1. Build: `npm install`, then `npm run build`. The unpacked extension ends up in `dist/`, and the
-   build prints a size report checked against the 300 KB budget.
-2. Load it: open `chrome://extensions`, turn on Developer mode, click **Load unpacked** and pick `dist/`.
-3. Import your disc: the import page opens on install (it is also linked from the settings page).
-   Choose your **Super Smash Bros. Melee (USA) v1.02** image (`.iso` or `.ciso`, game id GALE01
-   revision 2). Any other disc or revision is refused with a message. The import takes a few
-   seconds and ends with a preview where Fox animates and his sounds can be played. After an update
-   that changes what is extracted (like the one that added his specials), the page asks you to
-   import again; your overrides are kept.
-4. Go to any page and click the toolbar icon, or press **Alt+M**. Do the same again to remove him.
+## Quick install (about 2 minutes)
 
-### GameCube adapter (Zadig + helper, Windows)
+You need **Chrome** (or Edge, Brave, any Chromium browser) and your own **Super Smash Bros. Melee
+(USA) v1.02** disc image, as `.iso` or `.ciso`. This is the same version Slippi uses.
 
-Chrome can't read the official adapter (or a Mayflash in Wii U mode) on its own. The adapter reports
-itself as a HID device, and Chrome's WebUSB never lets a page or extension claim one ("The requested
-interface implements a protected class"). A small helper in `helper/` reads it instead, through the
-same WinUSB driver Slippi and Dolphin use, and Chrome starts it through native messaging. The helper
-is C# compiled by the PowerShell that ships with Windows, so it needs nothing else installed.
+1. **Download** [`melee-web-fighter.zip`](../../releases/latest/download/melee-web-fighter.zip) and
+   unzip it somewhere it can stay, like `Documents\melee-web-fighter`. Chrome runs it from that
+   folder, so don't delete it afterwards.
+2. In Chrome, go to **`chrome://extensions`** and turn on **Developer mode** (switch in the top
+   right corner).
+3. Click **Load unpacked** and choose the **`extension`** folder inside what you unzipped.
+4. A page opens asking for your disc. **Choose your Melee `.iso` or `.ciso`.** After a few seconds
+   you'll see Fox animating; that means it worked.
+5. Go to any website and press **Alt+M** (or click the extension's icon). Press it again to remove Fox.
 
-1. Driver: download [Zadig](https://zadig.akeo.ie/) and run it. Choose **Options → List All
-   Devices**, select **WUP-028**, pick **WinUSB** and click **Replace Driver**. If Slippi already
-   works with your adapter, this is done.
-2. Helper: from this folder, run once:
-   `powershell -ExecutionPolicy Bypass -File helper\install.ps1`
-   It works out the extension's id from `dist/`, copies the helper to
-   `%LOCALAPPDATA%\melee-web-fighter\helper` and registers it for Chrome (and Edge, Brave and
-   Chromium). If you loaded the extension from another folder, pass `-ExtensionId <id>`; the
-   settings page shows the exact command. `helper\uninstall.ps1` removes it.
-3. Reload the extension in `chrome://extensions`.
+Tip: click the puzzle-piece icon in Chrome's toolbar and pin Melee Web Fighter so its icon is
+always visible.
 
-The settings page shows the adapter's state and, live, what each plugged-in controller is pressing.
-Only one program can hold the adapter at a time, so close Dolphin, Slippi or melee-unlocked first
-(and Steam, if its GameCube adapter support is on). Fox is played from the port chosen in the
-settings, or from the first port with a controller if that one is empty. If the state says the
-adapter isn't answering, unplug both of its cables and plug them back in.
+**Updating:** download the new zip, unzip it over the old folder, and click the ↻ reload arrow on
+Melee Web Fighter in `chrome://extensions`. If an update needs more from the disc, it asks you to
+choose it again; your settings and edits are kept.
 
 ## Controls
 
@@ -64,37 +48,63 @@ adapter isn't answering, unplug both of its cables and plug them back in.
 | Start | Enter | Start |
 | Debug draw | F9 | — |
 
-Fox has his whole moveset:
+On the keyboard a direction with A is a smash; hold Shift as well for a tilt. Falling off the
+screen respawns Fox at the top.
 
-* **Movement:** walking, dashing and dash dance, running, run brake, turning, crouching, jumpsquat,
-  short hop and full hop, double jump, fast fall, dropping through platforms, air dodge, wavedash
-  and waveland.
-* **Ground attacks:** jab, jab 2 and rapid jab; forward tilt (angled up or down), up tilt, down tilt;
-  forward smash, up smash, down smash, all chargeable by holding A; dash attack.
-* **Aerials:** all five, with auto-cancel and L-cancel.
-* **Specials:**
-  * Blaster (neutral B), on the ground and in the air. Press B again to keep firing.
-  * Illusion (side B). Press B during it to cut it short.
-  * Firefox (up B). Hold the stick to aim it. Early in the flight it passes through platforms.
-  * Reflector (down B), with jump-cancel, multishine and waveshine.
-* **Shield:** light and power shield, with the bubble shrinking as it wears down. Out of it: rolls,
-  spot dodge, grab, jump out of shield and shield drop.
-* **Grabs:** standing, dash and out of shield. With no one to catch, every grab whiffs.
-* **Taunts:** his taunt, and the Arwing taunt from Corneria.
+Fox has his whole moveset: dash dance, wavedash and waveland, short hop and fast fall, dropping
+through platforms, jabs, tilts, chargeable smashes, dash attack, all five aerials with L-cancel and
+auto-cancel, Blaster, Illusion, Firefox (aimable), Reflector with multishine and waveshine, light
+and power shield, rolls, spot dodge, grabs, and both taunts.
 
-Tilts and smashes follow the stick as in the game. On the keyboard's digital stick a direction
-with A is a smash; hold Shift as well for the tilt. Falling off the screen respawns him at the top.
+## Using a GameCube controller (Windows, optional)
+
+A regular gamepad or the keyboard works right away. The official GameCube adapter (or a Mayflash
+in Wii U mode) needs one extra step, because Chrome isn't allowed to read that adapter by itself. A
+small helper in the `helper` folder reads it for Chrome. It's a short C# program that Windows'
+built-in PowerShell compiles, so there's nothing else to download.
+
+1. **Driver:** if Slippi or Dolphin already sees your adapter, skip this step. Otherwise, run
+   [Zadig](https://zadig.akeo.ie/), choose **Options → List All Devices**, select **WUP-028**,
+   pick **WinUSB** and click **Replace Driver**.
+2. **Helper:** open the unzipped folder, click the address bar, type `powershell` and press
+   Enter. In the window that opens, paste this and press Enter:
+   ```
+   powershell -ExecutionPolicy Bypass -File helper\install.ps1
+   ```
+   It needs no admin rights and only registers the helper for your Windows user.
+3. Back in `chrome://extensions`, click ↻ on Melee Web Fighter.
+
+Open the extension's settings (right-click its icon → **Options**) to see whether the adapter is
+connected and what each controller is pressing. If the ID shown there doesn't match what the
+installer printed, the settings page gives you the exact command to run instead.
+
+* Only one program can use the adapter at a time: close Dolphin and Slippi first (and Steam, if
+  its GameCube adapter support is on).
+* If it says the adapter isn't answering, unplug both of its cables and plug them back in.
+* To remove the helper: `powershell -ExecutionPolicy Bypass -File helper\uninstall.ps1`
+
+The adapter helper is Windows only for now. On Mac and Linux, use a gamepad or the keyboard.
+
+## Troubleshooting
+
+* **The import says it's the wrong disc:** it has to be the USA v1.02 image (game id GALE01,
+  revision 2). PAL, Japanese, and v1.00/v1.01 images aren't supported.
+* **Nothing happens on a page:** Chrome doesn't allow extensions on `chrome://` pages or the Chrome
+  Web Store. Try any normal website.
+* **Alt+M does nothing:** another extension may use that shortcut. Change it at
+  `chrome://extensions/shortcuts`.
+* **Want to import again:** the import page is linked from the settings page.
 
 ## Settings
 
-The settings page (right-click the toolbar icon → Options) has:
+Right-click the toolbar icon → **Options**:
 
-* the adapter helper's status, a live input readout, the adapter port, and the gamepad mapping
-* Fox's height on the page, which sets the engine's `px_per_unit` scale
+* the adapter's status, a live input readout, which adapter port to use, and the gamepad mapping
+* Fox's size on the page
 * volume
-* a debug draw toggle (collision segments, ECB, hitboxes, input display)
-* plugins (the example is **moon gravity**)
-* the override editor
+* debug draw (collision, ECB, hitboxes, input display)
+* plugins (try **moon gravity**)
+* the override editor (see Modding)
 
 ## Modding
 
@@ -142,7 +152,9 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
 
 ## Development
 
-* `npm run build` builds the extension (add `--dev` for sourcemaps; `npm run watch` rebuilds on save).
+* `npm install`, then `npm run build` builds into `extension/` and prints a size report against the
+  300 KB budget (add `--dev` for sourcemaps; `npm run watch` rebuilds on save). `extension/` is
+  committed so people can install without building: rebuild before you commit source changes.
 * `npm run typecheck` runs the TypeScript checks.
 * `npm test` runs the Node tests.
   * They find your disc through `MELEE_ISO` or an `.iso`/`.ciso` in the repo root, which is git-ignored.

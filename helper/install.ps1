@@ -1,5 +1,5 @@
 # Installs the GameCube adapter helper for Melee Web Fighter (Windows, current user, no admin).
-#   powershell -ExecutionPolicy Bypass -File helper\install.ps1 [-ExtensionId <id>] [-ExtensionPath <dist folder>]
+#   powershell -ExecutionPolicy Bypass -File helper\install.ps1 [-ExtensionId <id>] [-ExtensionPath <extension folder>]
 # Copies the helper to %LOCALAPPDATA%\melee-web-fighter\helper, writes the native messaging manifest,
 # and registers it for Chrome (and Edge/Brave/Chromium if present). Undo with helper\uninstall.ps1.
 param([string[]]$ExtensionId, [string]$ExtensionPath)
@@ -16,7 +16,7 @@ function Get-UnpackedId([string]$path) {
 }
 
 if (-not $ExtensionId) {
-  if (-not $ExtensionPath) { $ExtensionPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'dist' }
+  if (-not $ExtensionPath) { $ExtensionPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'extension' }
   $ExtensionId = @(Get-UnpackedId $ExtensionPath)
   Write-Host "Extension loaded unpacked from $ExtensionPath -> id $($ExtensionId[0])"
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Melee Web Fighter — Import</title><link rel="stylesheet" href="ui.css"></head>
+<body><main>
+<h1>Import your Melee disc</h1>
+<p class="muted">Pick your own <b>Super Smash Bros. Melee NTSC 1.02</b> disc image (<code>.iso</code>, <code>.gcm</code> or <code>.ciso</code>).
+It is read on this computer only: Fox's model, animations, moves and sounds are converted into a small character folder kept in the
+extension's storage. Nothing is uploaded, and nothing from the disc is part of the extension.</p>
+
+<div class="card">
+  <div class="row"><input type="file" id="file" accept=".iso,.gcm,.ciso"><button id="start" class="primary" disabled>Import</button></div>
+  <p id="status" class="muted">No disc chosen.</p>
+  <progress id="progress" value="0" max="1" hidden></progress>
+  <pre id="log" class="muted" style="white-space:pre-wrap;font-size:12px;max-height:180px;overflow:auto"></pre>
+</div>
+
+<div class="card" id="previewCard" hidden>
+  <h2 style="margin-top:0">Preview</h2>
+  <canvas id="preview" class="preview" width="640" height="480"></canvas>
+  <div class="row" style="margin-top:8px">
+    <label>Animation <select id="anim"></select></label>
+    <button id="tpose">T-pose</button>
+  </div>
+  <h2>Sounds</h2>
+  <div id="sounds" class="row"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Next steps</h2>
+  <ol>
+    <li>Open any web page and click the extension's toolbar icon (or press <b>Alt+M</b>) to drop Fox onto it.</li>
+    <li>For the official GameCube adapter, follow the <a href="https://github.com/project-slippi/Slippi-Launcher/blob/main/docs/gamecube-adapter.md" target="_blank" rel="noopener">WinUSB (Zadig) setup</a> Slippi uses, then pair it on the <a href="options.html">settings page</a>.</li>
+    <li>Keyboard works without any setup: arrows/WASD move, Shift walks, Space/X jump, J = A, K = B, L = R (air dodge), Z = Z.</li>
+  </ol>
+</div>
+</main><script type="module" src="import.js"></script></body></html>
