@@ -32,9 +32,15 @@ You need **Chrome** (or Edge, Brave, any Chromium browser) and your own **Super 
 Tip: click the puzzle-piece icon in Chrome's toolbar and pin Melee Web Fighter so its icon is
 always visible.
 
-**Updating:** download the new zip, unzip it over the old folder, and click the ↻ reload arrow on
-Melee Web Fighter in `chrome://extensions`. If an update needs more from the disc, it asks you to
-choose it again; your settings and edits are kept.
+**Updating:** open the extension's settings (right-click its icon → **Options**) and click
+**Check for updates**, then **Update now**. The first time, Chrome asks you to pick the folder you
+unzipped and to let the extension edit it; after that an update is one click. The **Changelog**
+below the button lists what changed in each version. Your settings and edits are kept, and if an
+update needs more from the disc, it asks you to choose it again.
+
+Updating by hand works too: download the new zip, unzip it over the old folder, and click the ↻
+reload arrow on Melee Web Fighter in `chrome://extensions`. Version 0.1.0 has no update button,
+so moving from it to a newer version has to be done this way once.
 
 ## Controls
 
@@ -104,7 +110,9 @@ The adapter helper is Windows only for now. On Mac and Linux, use a gamepad or t
 
 Right-click the toolbar icon → **Options**:
 
-* the adapter's status, a live input readout, which adapter port to use, and the gamepad mapping
+* updates and the changelog
+* the adapter's status, a live input readout, which adapter port to use, and the gamepad and
+  keyboard mappings
 * Fox's size on the page
 * volume
 * debug draw (collision, ECB, hitboxes, input display)

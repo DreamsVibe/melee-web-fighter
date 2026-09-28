@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Melee Web Fighter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Play Fox from your own Super Smash Bros. Melee disc on any webpage with a GameCube controller.",
   "minimum_chrome_version": "116",
   "action": { "default_title": "Drop Fox onto this page (Alt+M)", "default_icon": { "32": "icons/icon32.png", "128": "icons/icon128.png" } },
   "icons": { "32": "icons/icon32.png", "128": "icons/icon128.png" },
   "background": { "service_worker": "background.js", "type": "module" },
   "permissions": ["activeTab", "scripting", "storage", "unlimitedStorage", "nativeMessaging"],
+  "host_permissions": ["https://api.github.com/*", "https://github.com/*", "https://release-assets.githubusercontent.com/*", "https://objects.githubusercontent.com/*"],
   "commands": {
     "toggle-fighter": { "suggested_key": { "default": "Alt+M" }, "description": "Drop Fox onto the page / remove him" }
   },

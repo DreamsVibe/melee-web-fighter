@@ -7,6 +7,7 @@ import { mergeJson, text } from '../shared/character';
 import { readZip, writeZip } from '../shared/zip';
 import { parseMove } from '../shared/move';
 import { PLUGIN_INFO } from '../plugins/info';
+import { checkFolder, compareVersions, fetchReleases, RELEASES_PAGE, saveFolder, savedFolder, unpackRelease, writeRelease, type Release } from '../shared/update';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let settings: Settings;
@@ -52,6 +53,9 @@ async function init(): Promise<void> {
   $('importState').innerHTML = imported
     ? 'Fox is imported. <a href="import.html">Re-import or preview</a>.'
     : '<b>Fox is not imported yet:</b> <a href="import.html">import your Melee disc</a> first.';
+
+  // --- updates
+  void initUpdates();
 
   // --- controller
   const port = $<HTMLSelectElement>('port');
@@ -162,6 +166,147 @@ function waitForPadButton(btn: HTMLButtonElement): Promise<number | null> {
     };
     poll();
   });
+}
+
+// ---------------------------------------------------------------- updates
+const VERSION = chrome.runtime.getManifest().version;
+let releases: Release[] | null = null;
+let updating = false;
+
+async function initUpdates(): Promise<void> {
+  $('version').textContent = VERSION;
+  $<HTMLAnchorElement>('updateLink').href = RELEASES_PAGE;
+  $('checkUpdates').onclick = () => void checkForUpdates();
+  $('updateNow').onclick = () => void updateNow();
+  $('forgetFolder').onclick = async () => {
+    await saveFolder(null);
+    $('forgetFolder').hidden = true;
+    $('updateState').textContent = 'Folder forgotten: the next update asks for it again.';
+  };
+  const changelog = $<HTMLDetailsElement>('changelog');
+  changelog.addEventListener('toggle', () => { if (changelog.open && !releases) void checkForUpdates(); });
+  $('forgetFolder').hidden = !(await savedFolder());
+  // Set just before the extension restarts itself for an update: report how it went.
+  const { pendingUpdate } = await chrome.storage.local.get('pendingUpdate');
+  if (typeof pendingUpdate === 'string') {
+    await chrome.storage.local.remove('pendingUpdate');
+    $('updateState').textContent = pendingUpdate === VERSION
+      ? `Updated to ${VERSION}. Reload any page that had Fox on it.`
+      : `The files for ${pendingUpdate} were written, but Chrome still runs ${VERSION}: the folder you picked isn't the one Chrome loads. Use a different folder and update again.`;
+  }
+}
+
+async function checkForUpdates(): Promise<void> {
+  const state = $('updateState');
+  state.textContent = 'Checking…';
+  try {
+    releases = await fetchReleases();
+  } catch (e) {
+    state.textContent = `Couldn't check: ${(e as Error).message}`;
+    $('changelogBody').textContent = "Couldn't load the changelog.";
+    return;
+  }
+  renderChangelog(releases);
+  const latest = releases[0];
+  const newer = !!latest && compareVersions(latest.version, VERSION) > 0;
+  state.textContent = !latest ? 'No releases published yet.' : newer ? `Version ${latest.version} is available.` : "You're up to date.";
+  $('updateBox').hidden = !newer;
+  if (newer) {
+    $<HTMLAnchorElement>('updateLink').href = latest.url;
+    $<HTMLButtonElement>('updateNow').disabled = !latest.zipUrl;
+    if (!latest.zipUrl) state.textContent += ' Its download isn\'t attached yet; try again in a few minutes.';
+  }
+}
+
+async function updateNow(): Promise<void> {
+  const latest = releases?.[0];
+  if (!latest?.zipUrl || updating) return;
+  const state = $('updateState'), button = $<HTMLButtonElement>('updateNow');
+  updating = true; button.disabled = true;
+  try {
+    // Chrome's folder prompts need the click that started this, so they come before the download.
+    let handle = await savedFolder();
+    if (handle && (await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') handle = undefined;
+    if (!handle) {
+      try { handle = await window.showDirectoryPicker({ id: 'mwf-install', mode: 'readwrite' }); } catch { state.textContent = 'Update cancelled.'; return; }
+    }
+    const folder = await checkFolder(handle, chrome.runtime.getManifest().name, VERSION).catch(async (e) => { await saveFolder(null); throw e; });
+    await saveFolder(handle);
+    $('forgetFolder').hidden = false;
+    state.textContent = `Downloading ${latest.version}…`;
+    const res = await fetch(latest.zipUrl, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`the download failed (${res.status}).`);
+    const files = await unpackRelease(new Uint8Array(await res.arrayBuffer()), latest.version);
+    state.textContent = 'Writing files…';
+    await writeRelease(folder, files);
+    await chrome.storage.local.set({ pendingUpdate: latest.version });
+    state.textContent = 'Restarting…';
+    chrome.runtime.reload();
+  } catch (e) {
+    state.textContent = `Update failed: ${(e as Error).message}`;
+  } finally {
+    updating = false; button.disabled = false;
+  }
+}
+
+function renderChangelog(list: Release[]): void {
+  const body = $('changelogBody');
+  body.className = '';
+  if (!list.length) { body.textContent = 'No releases yet.'; return; }
+  body.replaceChildren(...list.map((r) => {
+    const section = document.createElement('section');
+    const h = document.createElement('h3');
+    const link = document.createElement('a');
+    link.href = r.url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = r.name;
+    const meta = document.createElement('span');
+    meta.className = 'muted';
+    const tag = compareVersions(r.version, VERSION) > 0 ? ' · new' : r.version === VERSION ? ' · installed' : '';
+    meta.textContent = ` ${new Date(r.date).toLocaleDateString()}${tag}`;
+    h.append(link, meta);
+    section.append(h, ...renderNotes(r.notes));
+    return section;
+  }));
+}
+
+/** Release notes are Markdown; this covers what they use (headings, lists, bold, code, links) without innerHTML. */
+function renderNotes(md: string): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  let list: HTMLUListElement | null = null, para: string[] = [];
+  const flush = () => {
+    if (!para.length) return;
+    const p = document.createElement('p'); p.append(...inline(para.join(' '))); out.push(p); para = [];
+  };
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.trim();
+    const item = /^[-*] (.*)/.exec(line), head = /^#{1,6} (.*)/.exec(line);
+    if (item) {
+      flush();
+      if (!list) { list = document.createElement('ul'); out.push(list); }
+      const li = document.createElement('li'); li.append(...inline(item[1])); list.append(li);
+      continue;
+    }
+    list = null;
+    if (head) { flush(); const h = document.createElement('h4'); h.append(...inline(head[1])); out.push(h); }
+    else if (!line) flush();
+    else para.push(line);
+  }
+  flush();
+  return out;
+}
+
+function inline(text: string): Node[] {
+  const out: Node[] = [];
+  const re = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g;
+  let last = 0;
+  for (let m; (m = re.exec(text));) {
+    out.push(document.createTextNode(text.slice(last, m.index)));
+    if (m[1] !== undefined) { const b = document.createElement('b'); b.textContent = m[1]; out.push(b); }
+    else if (m[2] !== undefined) { const c = document.createElement('code'); c.textContent = m[2]; out.push(c); }
+    else { const a = document.createElement('a'); a.href = m[4]; a.target = '_blank'; a.rel = 'noopener'; a.textContent = m[3]; out.push(a); }
+    last = re.lastIndex;
+  }
+  out.push(document.createTextNode(text.slice(last)));
+  return out;
 }
 
 // ---------------------------------------------------------------- keyboard mapping

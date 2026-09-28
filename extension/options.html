@@ -6,6 +6,24 @@
 <p class="muted">Click the toolbar icon or press <b>Alt+M</b> on any page to drop Fox onto it. <span id="importState"></span></p>
 
 <div class="card">
+  <h2 style="margin-top:0">Updates</h2>
+  <div class="row">
+    <span>Version <b id="version"></b></span>
+    <button id="checkUpdates">Check for updates</button>
+    <span id="updateState" class="muted"></span>
+  </div>
+  <div id="updateBox" hidden style="margin-top:10px">
+    <div class="row"><button id="updateNow" class="primary">Update now</button>
+      <span class="muted">or <a id="updateLink" target="_blank" rel="noopener">download it from GitHub</a></span></div>
+    <p class="muted">The first time, Chrome asks you to pick your Melee Web Fighter folder (the one you unzipped, with
+    <b>extension</b> and <b>helper</b> inside) and to let the extension edit it. Your imported Fox, settings and overrides
+    are kept. Pages that already have Fox on them need a reload afterwards.</p>
+  </div>
+  <button id="forgetFolder" hidden>Use a different folder for updates</button>
+  <details id="changelog" style="margin-top:10px"><summary>Changelog</summary><div id="changelogBody" class="muted">Loading…</div></details>
+</div>
+
+<div class="card">
   <h2 style="margin-top:0">Controller</h2>
   <div class="row">
     <label>Adapter port <select id="port"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>

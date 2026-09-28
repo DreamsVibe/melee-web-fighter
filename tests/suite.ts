@@ -4,6 +4,12 @@ import { Archive } from '../src/importer/hsd';
 import { readActionTable } from '../src/importer/actions';
 import { scriptBody } from '../src/importer/moves-convert';
 import { encodeMove, formatMove, parseMove, type Cmd } from '../src/shared/move';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { writeZip } from '../src/shared/zip';
+import { checkFolder, compareVersions, unpackRelease, writeRelease, type DirHandle } from '../src/shared/update';
 
 export interface Test { name: string; needsDisc?: boolean; run(disc: Disc): Promise<void> | void }
 export const tests: Test[] = [];
@@ -185,3 +191,84 @@ test('validation: web engine matches the real game frame by frame (tests/expecte
   }
   assert(!failures.length, failures.join('\n      '));
 }, true);
+
+/** A DirHandle over a real folder, standing in for the File System Access API. */
+function nodeDir(path: string): DirHandle {
+  const name = path.split(/[\/]/).pop()!;
+  return {
+    name,
+    async getDirectoryHandle(n, opts) {
+      const p = join(path, n);
+      if (opts?.create) await mkdir(p, { recursive: true });
+      else if (!(await stat(p)).isDirectory()) throw new Error('not a folder');
+      return nodeDir(p);
+    },
+    async getFileHandle(n, opts) {
+      const p = join(path, n);
+      if (!opts?.create) await stat(p);
+      return {
+        getFile: async () => new Blob([await readFile(p)]),
+        createWritable: async () => {
+          let data = new Uint8Array();
+          return { write: async (d) => { data = d; }, close: async () => writeFile(p, data) };
+        },
+      };
+    },
+  };
+}
+
+test('updater: version order, folder checks, and writing a release over an install', async () => {
+  assert(compareVersions('v0.10.0', '0.9.9') > 0 && compareVersions('0.2', '0.2.0') === 0 && compareVersions('0.1.0', 'v0.2.0') < 0, 'version order');
+  const tmp = mkdtempSync(join(tmpdir(), 'mwf-update-'));
+  try {
+    const NAME = 'Melee Web Fighter';
+    const manifest = (version: string) => JSON.stringify({ name: NAME, version });
+    // An install as unzipped: extension/ + helper/.
+    const root = join(tmp, 'melee-web-fighter');
+    mkdirSync(join(root, 'extension'), { recursive: true });
+    mkdirSync(join(root, 'helper'));
+    writeFileSync(join(root, 'extension/manifest.json'), manifest('0.2.0'));
+    writeFileSync(join(root, 'extension/options.js'), 'old');
+    writeFileSync(join(root, 'helper/install.ps1'), 'old');
+
+    const folder = await checkFolder(nodeDir(root), NAME, '0.2.0');
+    assert(folder.kind === 'root', 'root folder recognised');
+    assert((await checkFolder(nodeDir(join(root, 'extension')), NAME, '0.2.0')).kind === 'extension', 'extension folder recognised');
+    const rejects = async (dir: string, version: string, what: string) => {
+      let threw = false;
+      try { await checkFolder(nodeDir(dir), NAME, version); } catch { threw = true; }
+      assert(threw, what);
+    };
+    await rejects(root, '0.1.0', 'a copy at another version is refused');
+    await rejects(join(root, 'helper'), '0.2.0', 'a folder without the extension is refused');
+    mkdirSync(join(tmp, 'clone/.git'), { recursive: true });
+    mkdirSync(join(tmp, 'clone/extension'));
+    writeFileSync(join(tmp, 'clone/extension/manifest.json'), manifest('0.2.0'));
+    await rejects(join(tmp, 'clone'), '0.2.0', 'a git checkout is refused');
+
+    const zip = writeZip([
+      { path: 'melee-web-fighter/README.md', data: 'readme' },
+      { path: 'melee-web-fighter/extension/manifest.json', data: manifest('0.3.0') },
+      { path: 'melee-web-fighter/extension/options.js', data: 'new' },
+      { path: 'melee-web-fighter/extension/icons/new.png', data: new Uint8Array([1, 2, 3]) },
+      { path: 'melee-web-fighter/helper/install.ps1', data: 'new' },
+    ]);
+    let threw = false;
+    try { await unpackRelease(zip, '0.4.0'); } catch { threw = true; }
+    assert(threw, 'a zip at the wrong version is refused');
+    const files = await unpackRelease(zip, '0.3.0');
+    assert(files.length === 5 && files.every((f) => !f.path.startsWith('melee-web-fighter/')), 'top folder dropped');
+
+    await writeRelease(folder, files);
+    const read = (p: string) => readFileSync(join(root, p), 'utf8');
+    assert(JSON.parse(read('extension/manifest.json')).version === '0.3.0', 'manifest updated');
+    assert(read('extension/options.js') === 'new' && read('helper/install.ps1') === 'new' && read('README.md') === 'readme', 'files updated');
+    assert(readFileSync(join(root, 'extension/icons/new.png')).length === 3, 'new folders created');
+
+    // Picking extension/ itself updates only the extension.
+    const ext = await checkFolder(nodeDir(join(root, 'extension')), NAME, '0.3.0');
+    assert(await writeRelease(ext, files) === 3, 'extension folder gets only extension files');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

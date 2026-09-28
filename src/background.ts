@@ -23,6 +23,12 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('import.html') });
+  // The settings page restarted the extension to finish an update: reopen it to show the result.
+  if (details.reason === 'update') {
+    void chrome.storage.local.get('pendingUpdate').then(({ pendingUpdate }) => {
+      if (pendingUpdate) void chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+    });
+  }
 });
 
 // ---- GameCube adapter: the native helper reads it; subscribers get its messages -------------------
