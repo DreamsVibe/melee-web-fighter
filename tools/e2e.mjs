@@ -1,7 +1,8 @@
 // Dev tool: an end-to-end check in real Chrome. Loads a copy of extension/ over a CDP pipe (branded
 // Chrome ignores --load-extension), imports the disc on import.html, opens tests/pages/sample.html
 // from a local server, drops Fox in, hits Sandbag with the keyboard and saves screenshots.
-//   node tools/e2e.mjs <output folder>        (from the repo root; CHROME=<path> to pick a browser)
+//   node tools/e2e.mjs <output folder>        (from the repo root; CHROME=<path> to pick a browser,
+//                                             PAGE=<html file> for another test page)
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync, readdirSync, cpSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -23,7 +24,7 @@ cpSync(join(REPO, 'extension'), ext, { recursive: true });
 const man = JSON.parse(readFileSync(join(ext, 'manifest.json'), 'utf8'));
 man.host_permissions = [...(man.host_permissions ?? []), 'http://127.0.0.1/*'];
 writeFileSync(join(ext, 'manifest.json'), JSON.stringify(man));
-const server = createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(readFileSync(join(REPO, 'tests', 'pages', 'sample.html'))); }).listen(8765);
+const server = createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(readFileSync(process.env.PAGE ?? join(REPO, 'tests', 'pages', 'sample.html'))); }).listen(8765);
 
 const chrome = spawn(CHROME, [
   '--headless=new', `--user-data-dir=${prof}`, '--remote-debugging-pipe', '--enable-unsafe-extension-debugging',
@@ -114,6 +115,10 @@ try {
   await shot(page.sessionId, 'e2e-smash.png');
   await sleep(1500);
   await shot(page.sessionId, 'e2e-after.png');
+  // Scroll a screen down: Sandbag is left off screen and comes back in view, at 0%.
+  await evaluate(page.sessionId, 'window.scrollBy(0, 700); 1');
+  await sleep(2500);
+  await shot(page.sessionId, 'e2e-scrolled.png');
 } catch (e) {
   log('error', e.stack);
 } finally {

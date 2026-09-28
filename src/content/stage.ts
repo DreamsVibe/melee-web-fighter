@@ -46,6 +46,8 @@ export class PageStage {
   lastScanTotalMs = 0;
   /** Elements our own overlay added; never part of the stage. */
   ignore = new Set<Element>();
+  /** The first scan is complete (spawning waits for it, to pick a platform that's really there). */
+  ready = false;
 
   constructor(private view: View, public opts: StageOptions) {
     this.observer = new MutationObserver((records) => {
@@ -89,6 +91,7 @@ export class PageStage {
         this.buildSegments();
         this.job = null;
         this.lastScan = performance.now();
+        this.ready = true;
       }
       const slice = performance.now() - t0;
       job.maxSlice = Math.max(job.maxSlice, slice);

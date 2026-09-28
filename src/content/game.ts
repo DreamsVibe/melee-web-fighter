@@ -15,6 +15,7 @@ import { withDefaults, type Settings } from '../shared/settings';
 import { PageStage } from './stage';
 import { Engine } from '../engine/engine';
 import { World } from '../engine/world';
+import { SegKind } from '../engine/stagetypes';
 import { loadCharacter } from '../engine/load';
 import { AudioPlayer } from '../audio/audio';
 import { pluginsFor } from '../plugins';
@@ -27,8 +28,14 @@ const SANDBAG = 'characters/sandbag/';
 /** How far from Fox (Melee units) Sandbag appears, and how far past the screen edge it may go. */
 const SANDBAG_GAP = 22;
 const SANDBAG_OFFSCREEN = 12;
-/** Sandbag's collision bottom while falling, above its feet (its ECB bones in the Fall pose). */
-const SANDBAG_AIR_ECB_BOTTOM = 5.7;
+/**
+ * Spawn spots: a platform at least this far below the top of the screen (room for a fighter to stand
+ * in view, and below fixed headers), and this far in from the sides.
+ */
+const SPAWN_HEADROOM = 22;
+const SPAWN_SIDE = 8;
+/** Sandbag comes back at least this far from Fox. */
+const RESPAWN_AWAY = 40;
 
 export class Game {
   readonly overlay = new Overlay();
@@ -44,6 +51,8 @@ export class Game {
   private quad: CanvasQuad | null = null;
   private stage: PageStage | null = null;
   private engine: Engine | null = null;
+  /** Fox and Sandbag have appeared (after the first page scan). */
+  private spawned = false;
   private readonly world = new World();
   private sandbag: Engine | null = null;
   private sandbagRenderer: FighterRenderer | null = null;
@@ -90,13 +99,10 @@ export class Game {
     this.stage = new PageStage(this.view, { minSolidPx: this.settings.minSolidPx, minSegmentPx: this.settings.minSegmentPx, maxSegments: this.settings.maxSegments });
     this.stage.ignore.add(this.overlay.canvas);
     this.applySettings();
-    // Drop in at the top centre of the viewport.
+    // Fox (and Sandbag) appear once the first page scan is done, on platforms in view (see step()).
     this.stage.update();
     this.world.setStage(this.stage.data);
-    const [sx, sy] = this.stage.data.spawn;
-    this.engine!.spawn(sx, sy);
-    this.world.respawn = (e) => (e === this.sandbag ? this.besideFox() : this.stage!.data.spawn);
-    if (this.sandbag) this.spawnSandbag();
+    this.world.respawn = (e) => (e === this.sandbag ? this.sandbagRespawn() : this.foxRespawn());
     this.overlay.onStep = () => this.step();
     this.overlay.onRender = () => this.render();
     this.input.onKey = (code) => { if (code === 'F9') this.debug.setEnabled(!this.debug.enabled); };
@@ -140,28 +146,62 @@ export class Game {
     if (this.sandbag) this.sandbag.setData(data);
     else {
       this.sandbag = this.world.add(new Engine(data));
-      if (this.stage) { this.sandbag.setStage(this.stage.data); this.spawnSandbag(); }
+      if (this.stage) { this.sandbag.setStage(this.stage.data); if (this.spawned) this.spawnSandbag(); }
     }
     this.sandbag.plugins = pluginsFor(this.settings).filter((p) => !p.input && !p.render);
     this.sandbag.noDamage = !this.settings.sandbagDamage;
   }
 
   /**
-   * A spot beside Fox, on the side with more room on screen. Standing, Sandbag drops onto what he
-   * stands on; in the air, its collision bottom lines up with his so it passes the same platforms.
+   * A place to appear that's in view: on top of a platform on screen, with room above it (so not on a
+   * fixed header or the top of the page), as near `preferX` as possible and otherwise high up. The
+   * point is just above the platform, so the fighter drops onto it. Null when the screen has none.
    */
-  private besideFox(): [number, number] {
-    const fp = this.engine!.fighter, [l, r] = this.view.viewport();
-    let side = fp.facing;
-    if (fp.pos.x + side * SANDBAG_GAP > r - 8 || fp.pos.x + side * SANDBAG_GAP < l + 8) side = -side;
-    const y = fp.ga === 0 ? fp.pos.y + 0.5 : fp.pos.y + fp.ecb.bottom - SANDBAG_AIR_ECB_BOTTOM;
-    return [fp.pos.x + side * SANDBAG_GAP, y];
+  private visibleSpot(preferX: number): [number, number] | null {
+    const [l, r, b, t] = this.view.viewport();
+    let best: [number, number] | null = null, bestScore = Infinity;
+    for (const s of this.stage!.data.segments) {
+      if ((s.kind !== SegKind.Platform && s.kind !== SegKind.Floor) || s.y0 !== s.y1) continue;
+      if (s.y0 > t - SPAWN_HEADROOM || s.y0 < b + 2) continue;
+      const lo = Math.max(s.x0, l + SPAWN_SIDE) + 3, hi = Math.min(s.x1, r - SPAWN_SIDE) - 3;
+      if (hi < lo) continue;
+      const x = Math.min(hi, Math.max(lo, preferX));
+      const score = Math.abs(x - preferX) + 0.3 * (t - s.y0);
+      if (score < bestScore) { bestScore = score; best = [x, s.y0 + 0.5]; }
+    }
+    return best;
   }
 
-  /** Sandbag appears beside Fox at 0%, facing him. */
+  /** Where Fox first appears: a platform in view near the top middle of the screen. */
+  private spawnFox(): void {
+    const [l, r, , t] = this.view.viewport();
+    const [x, y] = this.visibleSpot((l + r) / 2) ?? [(l + r) / 2, t - 4];
+    this.engine!.spawn(x, y);
+  }
+
+  /** After a KO Fox drops back onto a platform in view near the middle of the screen. */
+  private foxRespawn(): [number, number] {
+    const [l, r] = this.view.viewport();
+    return this.visibleSpot((l + r) / 2) ?? this.stage!.data.spawn;
+  }
+
+  /** Sandbag first appears beside Fox (on the side with more room), at 0%, facing him. */
   private spawnSandbag(): void {
-    const sb = this.sandbag!, [x, y] = this.besideFox();
-    sb.spawn(x, y, x > this.engine!.fighter.pos.x ? -1 : 1);
+    const fp = this.engine!.fighter, [l, r] = this.view.viewport();
+    let side = fp.facing;
+    if (fp.pos.x + side * SANDBAG_GAP > r - SPAWN_SIDE || fp.pos.x + side * SANDBAG_GAP < l + SPAWN_SIDE) side = -side;
+    const [x, y] = this.visibleSpot(fp.pos.x + side * SANDBAG_GAP) ?? [fp.pos.x + side * SANDBAG_GAP, fp.pos.y + 0.5];
+    this.sandbag!.spawn(x, y, x > fp.pos.x ? -1 : 1);
+  }
+
+  /**
+   * After a KO Sandbag comes back near the middle of the screen, not at Fox: if he's standing there,
+   * to one side of him, so the fight can move around the page.
+   */
+  private sandbagRespawn(): [number, number] {
+    const [l, r, , t] = this.view.viewport(), mid = (l + r) / 2, fx = this.engine!.fighter.pos.x;
+    const preferX = Math.abs(mid - fx) >= RESPAWN_AWAY ? mid : fx < mid ? fx + RESPAWN_AWAY : fx - RESPAWN_AWAY;
+    return this.visibleSpot(preferX) ?? [mid, t - 4];
   }
 
   /** Live reload after an override or setting changed. */
@@ -207,8 +247,15 @@ export class Game {
     this.stage!.update();
     this.stageMaxMs = Math.max(this.stageMaxMs, performance.now() - ts);
     this.world.setStage(this.stage!.data);
+    if (!this.spawned) {
+      // Nothing to play until the page is scanned: then Fox and Sandbag appear on platforms in view.
+      if (!this.stage!.ready) return;
+      this.spawned = true;
+      this.spawnFox();
+      if (this.sandbag) this.spawnSandbag();
+    }
     if (this.sandbag) {
-      // Off the screen on any side: back beside Fox at 0%.
+      // Off the screen on any side: back at 0% (sandbagRespawn).
       const [l, r, b, t] = this.view.viewport(), m = SANDBAG_OFFSCREEN;
       this.sandbag.blast = [l - m, r + m, b - m, t + m];
     }
@@ -258,6 +305,7 @@ export class Game {
     gl.viewport(0, 0, c.width, c.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (!this.spawned) return;
     const [l, r, b, t] = this.view.viewport();
     ortho(this.proj, l, r, b, t, -100, 100);
     // Sandbag behind Fox. During hitlag it shakes (the game's model shift, ftCo_80090690).
