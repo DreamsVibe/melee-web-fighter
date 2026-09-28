@@ -1,4 +1,4 @@
-// Importer page: pick the disc, verify it, convert Fox, store the character folder.
+// Importer page: pick the disc, verify it, convert Fox and Sandbag, store the character folders.
 import { Disc, DiscError } from './disc';
 import { runImport } from './pipeline';
 import { startPreview } from './preview';
@@ -41,7 +41,7 @@ startBtn.addEventListener('click', async () => {
       say(text);
     }, (line) => { log.textContent += line + '\n'; log.scrollTop = log.scrollHeight; });
     progress.value = 1;
-    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: Fox's folder is ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
+    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: Fox and Sandbag take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
     await showPreview();
   } catch (err) {
     console.error(err);
@@ -90,6 +90,10 @@ async function showPreview(): Promise<void> {
 }
 
 // Show the preview straight away when a folder was imported before.
-import('../shared/db').then(async ({ getFile }) => {
-  if (await getFile('characters/fox/character.json')) { say('Fox is already imported. Import again to refresh him.'); await showPreview(); }
+import('../shared/db').then(async ({ getFile, asText, FORMAT_VERSION }) => {
+  const info = asText(await getFile('characters/fox/character.json'));
+  if (!info) return;
+  if ((JSON.parse(info).formatVersion ?? 0) < FORMAT_VERSION) say('An older import was found: import your disc again to add Sandbag and hits.');
+  else say('Fox and Sandbag are already imported. Import again to refresh them.');
+  await showPreview();
 });

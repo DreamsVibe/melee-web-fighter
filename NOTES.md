@@ -333,3 +333,181 @@ What made the scan cheap:
 * Long child lists (more than 64 children, in block flow) are bisected to the part near the region.
 * Elements too small to be solid skip `getComputedStyle`; only their text matters.
 * The region is the viewport plus half a screen, which is where the blast zone is.
+
+## Hits and Sandbag
+
+Sandbag stands next to Fox and takes hits. Everything below is checked frame by frame against the
+real game with Sandbag as player 2 (the `sb_*` validation scripts).
+
+### Reference traces with a second fighter
+
+* melee-unlocked's `fighter-trace` branch also writes Fox's hitlag and player slot 2's fighter
+  (`p2_*` columns: kind, motion, animation frame, position, self and knockback velocity, ground
+  speed, facing, ground/air, percent, hitlag).
+* `--p2-ckind 31` turns player 2 into Sandbag. The character select screen doesn't offer it, so the
+  option rewrites player 2's pick in `gmVsMelee_StartData` (`0x80480530`, `players[1].ckind` at
+  `+0x60 + 0x24`) once the prelude has picked Luigi (7), before the match scene reads it.
+  Sandbag's internal kind is 32.
+* `run_reference.py` passes the option for a script that says `# p2 sandbag`. Sandbag stands at
+  x = +60 on Final Destination, facing left, and is in Wait from retrace 1605, so scripts start
+  their inputs at 230.
+* The game's Sandbag can't be KO'd in VS mode. Off the stage it falls forever and gains 1% a second,
+  so the comparison stops once it leaves Final Destination. Ours respawns instead.
+
+### Frame order with several fighters
+
+Fighter procs by priority (`Fighter_Create`): 0 hitlag, 1 animation, 2 CPU, 3 input, 4 physics,
+6 map collision, 7 IK, 8 accessories, 9 hitbox positions (`procCollPos`), 12 grabs, 13 attack
+collision, 14 damage (`procCollResolve`), 16 dynamics. Items use 0, 1, 4, 5, 9, 11–14 and 16. Each
+priority runs for every fighter before the next priority starts. `World.step` does the same with one
+engine per fighter, and `Engine.step` on its own runs the same phases for one fighter, which is why
+the Fox-only traces still match.
+
+### Hitlag
+
+* The hitlag flag (`x2219_b5`) skips the animation step and anim callback, the input callbacks
+  (IASA, special-input counters, smash charge) and the whole of `procUpdate`'s physics. Presses pile
+  up (`pressed |=`), and map collision still runs.
+* Frames = `int(int(damage × x198 + x19C) × mul)` (`ftCommon_CalcHitlag`), with x198 = 1/3,
+  x19C = 3, crouching × x1A0 (0.667), capped at x194. Electric hits (element 2) set the victim's
+  multiplier to x1A4 (1.5); the attacker keeps 1.
+* The victim's hitlag uses the strongest integer damage it took this frame. The attacker's uses the
+  strongest it dealt (`x1914`). Items give their owner no hitlag.
+
+### Hitboxes against hurtboxes
+
+* Hurtboxes are in the character file: `ftData +0x30 → {count, inits}`, 0x28-byte entries (joint,
+  height 0/1/2, grabbable, two ends, radius). Sandbag has 3, on joints 36, 4 and 5, each radius 5.5;
+  Fox has 13.
+* The hitbox command's offset words are named `z`, `y`, `x` in the decomp, and it stores them as
+  `b_offset = (z, y, x)`. The engine used to read them as `(x, y, z)`, which only mattered for the
+  debug draw until hits used them.
+* The test (`lbColl_8000805C` → `lbColl_80006E58`) is 3D. It takes the hitbox swept from last
+  frame's position to this frame's, finds the closest points to the hurtbox segment, and measures
+  the hurt radius in the joint's own space, so a scaled joint (model scale 0.96 for Fox, 1.2 for
+  Sandbag) has a fatter capsule. A freshly created hitbox doesn't sweep on its first frame.
+* A hitbox group shares its victims: a new hitbox copies them from an active one of the same group
+  (`ftColl_800768A0`), and a hit adds the victim to every hitbox of the group.
+* **Phantom hits.** When the overlap is under `x7A8` (0.01), the hit is a graze. It's logged
+  separately (`dmg_log1`) with half the damage (at least 1), only if nothing really hit that frame,
+  and each hitbox group tracks grazed victims in their own list, so a graze never blocks a later
+  real hit. A graze gives the victim hitlag but not the attacker, and the stored damage lands when
+  that hitlag ends (`x189C`, `ftColl_8007BE3C`), with no knockback. Its stale entry uses the
+  attacker's attack at that moment, not at the graze.
+
+### Knockback
+
+* `KNOCKBACK` (`ftColl_80079AB0`): `kb = ((0.01 × kbg × (x11C × ((xF8 − w·xF8/(1+w)) × inner) + x120)) + bkb)`
+  with `w = weight × xF4` and `inner = x110 × p + x114 × d × p`. Here `p` is the victim's integer
+  percent plus this frame's damage, and `d` is the hit's unstaled integer damage. Set knockback
+  (`wkb`) uses x118 in place of `p`. The result is capped at x108; crouching × x124, minimum x104.
+* The strongest logged hit wins (`ftColl_8007A06C`). The victim faces the attacker
+  (`victim.x > attacker.x ? −1 : 1`); an item flying fast enough pushes the way it flies.
+* `ftCo_8008DCE0` applies it:
+  * hitstun is `int(kb × x154)` (0.4), at least 1;
+  * launch speed is `kb × x100` (0.03);
+  * the level (x158 / x15C / x160 on `kb × 0.4`) picks the state from
+    `ftCo_803C5520[air][level][hurtbox height]`, so Sandbag's mid-height hurtboxes give DamageN* and
+    DamageFlyN;
+  * the Sakurai angle (361) is x144 in the air, and on the ground grows from 0 over x14C–x150;
+  * a grounded upward launch lifts off, a downward one slides, and at level 3 a downward launch
+    steeper than x1E8 bounces (y × x1EC).
+* In the air, knockback velocity decays by x204 along its own direction. Sandbag instead decays each
+  axis by its own attributes (ext_attr: x 0, y 0.051, `ftCommon_SandbagKnockbackDeaccel`). On the
+  ground, ground friction × x200 slows it.
+* A launch with knockback over x12C leaves the victim invincible for x130 frames after its hitlag
+  (`ftColl_8007B7A4`). Hits still connect, which gives the attacker hitlag, but they do nothing.
+* Being hit sets a new launch, or combines with the old one when the last hit was more than xFC
+  frames ago (`ftCo_Damage_CalcVel`).
+* The game may pick DamageFlyRoll at high percent from its random number generator (x23C, x240).
+  The engine stays deterministic and never does.
+
+### Stale moves
+
+* Each player has a queue of 10 attacks (`StaleMoveTable`), of which the 9 most recent count. Each
+  use of the same move id subtracts `ftLoadCommonData[3][i]` (0.09, 0.08 … 0.01) from 1.
+* The move id comes from the motion table (`FtMoveId`: jabs 2–5, dash attack 6, tilts 7–9, smashes
+  10–12, aerials 13–17, specials 18–21). Landing keeps its aerial's id.
+* A new attack instance starts when the id changes, when it is Default (1), each pass through the
+  rapid-jab loop, and on each down tilt (`ft_800892A0`). A hit records (id, instance) once.
+* Staling applies when the hitbox is created, together with a charged smash's multiplier:
+  `(rate/256 − 1) × charge frames / hold frames + 1`.
+
+### Items: Fox's laser
+
+* The laser is an item (article 0, `ftData +0x48`) with a command script per state. The item
+  hitbox layout differs from a fighter's: 6 words, a 7-bit bone and 13-bit damage in word 0, and
+  `it_create_hitbox_4` in word 4.
+* Neutral B always uses state 0: four hitboxes of 3 damage with no growth and no base or set
+  knockback. The longest is removed after the first frame, and the damage drops to 2 after 18.
+  Zero knockback means no hitlag and no flinch, only percent.
+* The first script run is at spawn from timer 0. Later runs count down first, the same rule as
+  fighters.
+* The hitbox follows the ray's joint: yaw π/2 × facing, pitch π + atan2(vy, ∓vx), and Z scale growing
+  by |speed| / 11.25 up to the article's scale. The offsets lie along −Z.
+* A laser disappears once it has dealt damage (the FoxLaser logic's `dmg_dealt` returns true).
+
+### Sandbag
+
+* The files are `PlSb.dat` (`ftDataSandbag`), `PlSbNr.dat` (`PlySandbag_Share_joint`, 55 joints)
+  and `PlSbAJ.dat` (38 animations). Its Ft_Kind is 0x20, which indexes PlCo's parts table, and it
+  has one special action, WaitReverse (submotion 295, motion 341).
+* `ftSb_Init_8014FA30` constrains joints in code (HSD RObj). Joint 5 sits at the average of joints
+  12 and 17. Joints 7 and 6 aim their X axis at joints 37 and 5 (up = world Y), and their local X
+  rotation is then clamped to −90° and −86°. Hurtbox 2 is on joint 5, so the constraints matter for
+  hits as well as looks. `applyConstraints` in `render/pose.ts` follows `HSD_RObjUpdateAll`
+  (position, `resolveCnsDirUp`, `resolveLimits`).
+* Landing out of tumble (`ftCo_80097AF4`, because `is_sandbag`) reads HipN's matrix column 2, not
+  column 1 (`x2226_b0`). If the hip lies flat it bounces (DownBound U/D), then after
+  `x424` = 220 frames of DownWait it stands up. Otherwise it lands standing, in Wait or, facing the
+  other way, WaitReverse, where it stays until hit.
+* It skips the fall-animation blend (`ftCo_Fall_Anim`) and never teeters.
+* Its collision bottom while falling is 5.7 units above its feet (Fox's is 3.9), which matters when
+  it spawns next to Fox (`besideFox` in `content/game.ts`).
+
+### Pushing
+
+On the ground, fighters on the same floor whose push boxes (`ftData +0x50`: x offset, half width; Fox
+0/3.3, Sandbag 0/6) overlap are nudged 0.3 units a frame apart (`ftCommon_8007E0E4`, x450). The
+nudge is added to the position before self velocity in `procUpdate`.
+
+### Deviations (hits)
+
+* Only Fox attacks and only Sandbag gets hit. The damage states handle any fighter, but there are no
+  shields, grabs, throws, clanks, reflections or teching against a hit yet.
+* Sandbag has no controller, so there's no DI, SDI or teching; the code paths are there for later.
+* Hit sparks and the hitlag shake are 2D stand-ins drawn over the page.
+* On a page, Sandbag respawns beside Fox at 0% once it is past the screen edge by 12 units on any
+  side. In the game it can't be KO'd.
+
+## Adding a character: what to reuse
+
+The engine and importer now take a character spec (`CharacterSpec` in `importer/pipeline.ts`): file
+code, Ft_Kind, its own submotion names, special-attribute fields, behavior modules, sound bank,
+model constraints. Adding a fighter is:
+
+1. **Import.** Add a spec, then check the new folder with the importer in Node (see
+   `tools/datx.ts`: `roots`, `words` with `->` pointer paths).
+2. **States.** Common states are shared. Motion ids from 341 up are the character's own, so the
+   engine builds a separate state table for anything that reuses those ids (as Sandbag does).
+3. **Specials.** Port the character's `ft/kinds/ftXxx/*.c` behavior like Fox's `behaviors/`.
+4. **Validate.** Record traces with the new character as player 1 (or player 2 with
+   `--p2-ckind`), then find the first diverging frame with `tools/tracediff.ts`.
+
+`tools/e2e.mjs` checks the whole thing in real Chrome: it loads a copy of the extension over a CDP
+pipe (`--remote-debugging-pipe --enable-unsafe-extension-debugging`, then `Extensions.loadUnpacked`;
+branded Chrome ignores `--load-extension`), imports the disc with `DOM.setFileInputFiles`, and drives
+a local test page with key events. The copy adds `http://127.0.0.1/*` to `host_permissions`, since
+the real extension relies on activeTab (a click on the toolbar button).
+
+Tools worth building next:
+
+* A struct printer driven by the decomp headers. `types.h` comments carry every field's offset, so a
+  script could turn `ftCommonData`, `ftCo_DatAttrs` or a special-attributes struct into the
+  `Field[]` lists in `shared/attributes.ts`. Reading them by hand caused the `x424` mistake (a
+  float read as an int).
+* A script generator for validation runs. Moving Fox into range took several tries per script; a
+  small search that runs the reference with a few timings and keeps the one where the hit connects
+  would make coverage cheap.
+* A table of motion id → move id / submotion / flags taken from `ftmotionstates.c` and each
+  character's `MotionStateTable`, so `moveIdOf` and state names come from data.

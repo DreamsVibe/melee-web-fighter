@@ -104,6 +104,8 @@ export class Engine implements EngineApi {
   world: World | null = null;
   /** Percent never goes up (the settings' "Sandbag takes damage" switched off). */
   noDamage = false;
+  /** This fighter's own KO bounds [left, right, bottom, top], instead of the stage's blast zone. */
+  blast: [number, number, number, number] | null = null;
 
   constructor(public data: CharacterData) {
     this.fighter = newFighter(data);
@@ -234,7 +236,7 @@ export class Engine implements EngineApi {
   /** After damage: the blast zones (a KO respawns), then the plugins' end of frame. */
   endFrame(): void {
     const fp = this.fighter;
-    const [l, r, b, t] = this.stage.blast;
+    const [l, r, b, t] = this.blast ?? this.stage.blast;
     if (fp.pos.x < l || fp.pos.x > r || fp.pos.y < b || (this.world && fp.pos.y > t)) {
       this.events.push({ type: 'ko', frame: this.frame });
       const [sx, sy] = this.world?.spawnPoint(this) ?? this.stage.spawn;

@@ -24,6 +24,9 @@ export interface Settings {
   plugins: Record<string, boolean>;
   gamepad: GamepadMapping;
   keyboard: KeyboardMapping;
+  /** Sandbag stands next to Fox to hit; with sandbagDamage off it stays at 0%. */
+  sandbag: boolean;
+  sandbagDamage: boolean;
   minSolidPx: number;
   minSegmentPx: number;
   maxSegments: number;
@@ -52,6 +55,8 @@ export const DEFAULT_SETTINGS: Settings = {
   plugins: { 'moon-gravity': false },
   gamepad: DEFAULT_GAMEPAD,
   keyboard: DEFAULT_KEYBOARD,
+  sandbag: true,
+  sandbagDamage: true,
   minSolidPx: 40,
   minSegmentPx: 24,
   maxSegments: 400,

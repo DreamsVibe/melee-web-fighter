@@ -274,3 +274,39 @@ test('updater: version order, folder checks, and writing a release over an insta
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('sandbag: hits add percent, "no damage" keeps 0% and knocks back as at 0%, a KO respawns at 0%', async (disc) => {
+  const { foxData, sandbagData, finalDestination, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { World } = await import('../src/engine/world');
+  const fox = await foxData(disc), sb = await sandbagData(disc);
+  // Fox up close to a standing Sandbag, jabbing until the first hit lands.
+  const setup = (noDamage: boolean) => {
+    const w = new World(), st = finalDestination();
+    const a = w.add(new Engine(fox)), b = w.add(new Engine(sb));
+    w.setStage(st);
+    a.spawnGrounded(0, st.segments[0], 1);
+    b.spawnGrounded(9, st.segments[0], -1);
+    b.noDamage = noDamage;
+    for (let i = 0; i < 5; i++) w.step([pad()]);
+    return { w, a, b };
+  };
+  const jab = (s: ReturnType<typeof setup>) => {
+    s.w.step([pad({ buttons: 'A' })]);
+    for (let i = 0; i < 12 && !s.b.fighter.hitlag; i++) s.w.step([pad()]);
+    return { percent: s.b.fighter.percent, kb: Math.hypot(s.b.fighter.kbVel.x, s.b.fighter.kbVel.y) };
+  };
+  const dmg = setup(false), first = jab(dmg);
+  assert(first.percent > 3.9 && first.percent < 4.1, `jab percent ${first.percent}`);
+  const off = setup(true), noDmg = jab(off);
+  assert(noDmg.percent === 0, `no-damage percent ${noDmg.percent}`);
+  assert(Math.abs(noDmg.kb - first.kb) < 1e-6, `no-damage knockback ${noDmg.kb} vs ${first.kb}`);
+  // Out of its KO bounds: back at the respawn point, at 0%, falling.
+  dmg.w.respawn = (e) => (e === dmg.b ? [dmg.a.fighter.pos.x + 22, 20] : [0, 20]);
+  dmg.b.blast = [-50, 50, -50, 50];
+  dmg.b.fighter.pos.x = 80;
+  dmg.w.step([pad()]);
+  const f = dmg.b.fighter;
+  console.log(`      after KO: ${f.motionName} at (${f.pos.x.toFixed(1)}, ${f.pos.y.toFixed(1)}), ${f.percent}%`);
+  assert(f.percent === 0 && Math.abs(f.pos.x - (dmg.a.fighter.pos.x + 22)) < 1 && f.motionName === 'Fall', 'respawn');
+}, true);

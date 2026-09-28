@@ -1,22 +1,31 @@
 // Move effects the game draws with its own models and particles, drawn here as simple 2D shapes on an
 // offscreen canvas that is composited over the fighter (like the debug layer): blaster shots, the
-// shield bubble, the reflector, and Firefox's flames. Nothing touches the page.
+// shield bubble, the reflector, Firefox's flames and hit sparks. Nothing touches the page.
 import type { Engine } from '../engine/engine';
 import { shieldRadius } from '../engine/groundmoves';
 import type { View } from './view';
 
 /** Item_UpdateRayAnimation: a shot's beam grows to `scale` × this many units. */
 const RAY_UNIT = 11.25;
+/** How many frames a hit spark shows. */
+const SPARK_FRAMES = 8;
 
 export class EffectsLayer {
   readonly canvas = new OffscreenCanvas(1, 1);
   readonly ctx = this.canvas.getContext('2d')!;
+  /** Hit sparks (the game's Ef_Id_Unk1000 burst at the contact point): position, size, age. */
+  private sparks: Array<{ x: number; y: number; size: number; age: number }> = [];
+
+  /** A hit landed at (x, y); the burst is bigger the harder it hit. */
+  spark(x: number, y: number, kb: number): void {
+    this.sparks.push({ x, y, size: Math.min(10, 3 + kb * 0.05), age: 0 });
+  }
 
   /** Draws this frame's effects; returns false (and leaves the canvas alone) when there are none. */
   draw(e: Engine, view: View): boolean {
     const fp = e.fighter, name = fp.motionName;
     const fire = name.startsWith('SpecialHiHold') || name === 'SpecialHi' || name === 'SpecialAirHi';
-    if (!e.projectiles.length && !fp.shielding && !fp.reflecting && !fire) return false;
+    if (!e.projectiles.length && !fp.shielding && !fp.reflecting && !fire && !this.sparks.length) return false;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.round(window.innerWidth * dpr), h = Math.round(window.innerHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
@@ -44,6 +53,28 @@ export class EffectsLayer {
       ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
       ctx.restore();
     }
+
+    // Hit sparks: a white-hot star that flashes and fades.
+    for (const sp of this.sparks) {
+      const [x, y] = view.toClient(sp.x, sp.y);
+      const t = sp.age / SPARK_FRAMES, r = sp.size * u * (0.6 + 0.8 * t);
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.35, 'rgba(255,240,150,0.9)');
+      g.addColorStop(1, 'rgba(255,140,40,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2 + sp.age * 0.3, rr = i % 2 ? r * 0.45 : r;
+        if (i) ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); else ctx.moveTo(x + rr * Math.cos(a), y + rr * Math.sin(a));
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    this.sparks = this.sparks.filter((sp) => ++sp.age < SPARK_FRAMES);
 
     // Shield bubble at the shield joint, shrinking as it wears down.
     if (fp.shielding) {

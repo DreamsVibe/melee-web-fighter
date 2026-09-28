@@ -2,7 +2,7 @@
 import { DEFAULT_KEYBOARD, KEY_ACTIONS, loadSettings, saveSettings, type GamepadMapping, type KeyAction, type Settings } from '../shared/settings';
 import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
 import { AdapterDecoder, BTN, emptyPad } from '../engine/pad';
-import { announceChange, deleteFiles, getFile, listFiles, putFiles, asText } from '../shared/db';
+import { announceChange, deleteFiles, getFile, listFiles, putFiles, asText, FORMAT_VERSION } from '../shared/db';
 import { mergeJson, text } from '../shared/character';
 import { readZip, writeZip } from '../shared/zip';
 import { parseMove } from '../shared/move';
@@ -49,10 +49,12 @@ function watchAdapter(): void {
 
 async function init(): Promise<void> {
   settings = await loadSettings();
-  const imported = await getFile('characters/fox/character.json');
-  $('importState').innerHTML = imported
-    ? 'Fox is imported. <a href="import.html">Re-import or preview</a>.'
-    : '<b>Fox is not imported yet:</b> <a href="import.html">import your Melee disc</a> first.';
+  const imported = asText(await getFile('characters/fox/character.json'));
+  const current = imported && (JSON.parse(imported).formatVersion ?? 0) >= FORMAT_VERSION;
+  $('importState').innerHTML = !imported
+    ? '<b>Fox is not imported yet:</b> <a href="import.html">import your Melee disc</a> first.'
+    : current ? 'Fox and Sandbag are imported. <a href="import.html">Re-import or preview</a>.'
+      : '<b>This version needs your disc again</b> (for Sandbag and hits): <a href="import.html">import it</a>.';
 
   // --- updates
   void initUpdates();
@@ -82,6 +84,13 @@ async function init(): Promise<void> {
   const debug = $<HTMLInputElement>('debug');
   debug.checked = settings.debug;
   debug.onchange = () => void saveSettings({ debug: debug.checked });
+
+  // --- sandbag
+  for (const key of ['sandbag', 'sandbagDamage'] as const) {
+    const box = $<HTMLInputElement>(key);
+    box.checked = settings[key];
+    box.onchange = () => void saveSettings({ [key]: box.checked });
+  }
 
   // --- plugins
   $('plugins').replaceChildren(...PLUGIN_INFO.map((p) => {

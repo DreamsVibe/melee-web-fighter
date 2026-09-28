@@ -7,12 +7,14 @@ or the keyboard. Fox never changes the page: his attacks and lasers are drawn on
 <img width="1714" height="963" alt="meleefighterweb" src="https://github.com/user-attachments/assets/e7487902-f118-458f-b790-ec02106ef9b2" />
 
 
-**Right now it's just Fox, by himself** (no opponents), with his whole moveset checked frame by
-frame against the real game.
+**Fox has Melee's Sandbag to hit.** It stands next to him and takes hits like in the game: damage
+adds up and knocks it further, lasers add damage without making it flinch, strong hits send it
+tumbling. When it leaves the screen it comes back next to Fox at 0%. Fox's moveset and his hits on
+Sandbag are checked frame by frame against the real game.
 
-**Nothing from the game is included.** The extension is code only (about 210 KB). Fox's model,
-animations, sounds and moves are read in your browser from **your own** Melee disc image and stored
-locally. Nothing is uploaded anywhere.
+**Nothing from the game is included.** The extension is code only (about 250 KB). Fox's and
+Sandbag's models, animations, sounds and moves are read in your browser from **your own** Melee disc
+image and stored locally. Nothing is uploaded anywhere.
 
 ## Quick install (about 2 minutes)
 
@@ -113,6 +115,8 @@ Right-click the toolbar icon → **Options**:
 * updates and the changelog
 * the adapter's status, a live input readout, which adapter port to use, and the gamepad and
   keyboard mappings
+* Sandbag: whether it appears, and whether it takes damage (off: it stays at 0% and every hit knocks it
+  back as at 0%)
 * Fox's size on the page
 * volume
 * debug draw (collision, ECB, hitboxes, input display)
@@ -121,7 +125,8 @@ Right-click the toolbar icon → **Options**:
 
 ## Modding
 
-After an import, Fox is a folder of plain files:
+After an import, Fox is a folder of plain files (and Sandbag is another, `characters/sandbag/`, laid
+out the same way):
 
 ```
 characters/fox/
@@ -177,10 +182,19 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
     L-cancel, wavedash, waveland, multishine, waveshine, jabs and rapid jab, tilts, smashes with a
     charge, dash attack and grabs, shield with roll, spot dodge and jump out of shield, taunt,
     blaster, Illusion, Firefox, and run, jumpsquat and Illusion-cancel combinations).
+  * The `sb_*` scripts put Sandbag in as player 2 (`# p2 sandbag`) and check Fox's hits on it: jabs
+    and the rapid jab, tilts, smashes (charged too), aerials, the shine, lasers, launches, tumbling,
+    landing lying down and getting up, phantom hits and stale moves. Sandbag's state, animation
+    frame, position, knockback, percent and hitlag are compared every frame too.
   * The reference traces come from [melee-unlocked](https://github.com/DreamsVibe/melee-unlocked) built from its
     `fighter-trace` branch. Record them with
     `python tests/validation/run_reference.py --melee-unlocked C:/melee-unlocked`.
   * The traces go to `tests/expected/`, which is git-ignored because they come from your disc.
   * `npm test` then replays the same pads through the web engine and compares every frame: position
     within 0.01 units, motion and frame exact.
+  * `tools/tracediff.ts` prints the game and the engine side by side for a range of frames, and
+    `tools/datx.ts` explores the disc's archives (roots, hex, words, pointer paths). Both say how to
+    run them at the top.
+* `node tools/e2e.mjs <folder>` checks the extension end to end in Chrome: it loads a copy of
+  `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag and saves screenshots.
 * `NOTES.md` has the research notes (formats, offsets, decomp functions) and the list of deviations.
