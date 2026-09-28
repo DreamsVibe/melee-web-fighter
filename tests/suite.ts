@@ -175,14 +175,16 @@ test("engine: every one of Fox's moves starts, plays and returns to standing", a
 }, true);
 
 test('validation: web engine matches the real game frame by frame (tests/expected)', async (disc) => {
-  const { expectedTraces, readTrace, compareTrace } = await import('./validate');
-  const { foxData } = await import('./sim');
+  const { expectedTraces, readTrace, compareTrace, compareWorldTrace, hasSandbag } = await import('./validate');
+  const { foxData, sandbagData } = await import('./sim');
   const traces = expectedTraces();
   if (!traces.length) { console.log('      no reference traces: run tests/validation/run_reference.py'); return; }
   const data = await foxData(disc);
+  const sb = await sandbagData(disc);
   const failures: string[] = [];
   for (const t of traces) {
-    const r = compareTrace(t.name, readTrace(t.path), data);
+    const rows = readTrace(t.path);
+    const r = hasSandbag(rows) ? compareWorldTrace(t.name, rows, data, sb) : compareTrace(t.name, rows, data);
     if (r.mismatches.length) {
       const m = r.mismatches[0];
       failures.push(`${t.name}: first mismatch at retrace ${m.retrace} in ${m.field} (game ${m.expected}, web ${m.actual})\n        ${m.context.join('\n        ')}`);

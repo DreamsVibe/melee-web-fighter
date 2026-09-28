@@ -1,0 +1,27 @@
+# p2 sandbag
+# Fox runs up to Sandbag and jabs: jab 1, jab 2, then a rapid jab. Sandbag stands at x=+60.
+230 sx=127
+268
+300 A
+301
+312 A
+313
+360 A
+361
+362 A
+363
+364 A
+365
+366 A
+367
+368 A
+369
+370 A
+371
+372 A
+373
+374 A
+375
+376 A
+377
+640

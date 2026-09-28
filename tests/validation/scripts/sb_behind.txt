@@ -1,0 +1,9 @@
+# p2 sandbag
+# Fox runs through Sandbag to its right, turns and forward smashes it back towards the middle.
+230 sx=127
+281
+300 sx=-127
+301
+330 sx=-127 A
+331
+700

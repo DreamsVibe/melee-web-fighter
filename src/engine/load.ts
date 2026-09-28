@@ -69,8 +69,13 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
     parts: info.parts ?? [],
     shieldJoint: info.shieldJoint ?? 0,
     itemJoint: info.itemJoint ?? 0,
-    articles: info.articles ?? {},
+    articles: Object.fromEntries(Object.entries(info.articles ?? {}).map(([k, v]) => [k, { lifetime: (v as Named).lifetime, scale: (v as Named).scale }])),
     sfx: info.sounds ?? {},
     soundIds,
+    id: info.id ?? 'fox',
+    hurtboxes: info.hurtboxes ?? [],
+    push: info.push ?? [0, 3],
+    constraints: info.constraints ?? [],
+    laser: info.articles?.laser?.states ? info.articles.laser : null,
   };
 }

@@ -79,7 +79,24 @@ export const COMMON_FIELDS: Field[] = [
   ['spotdodge_stick_threshold', 0x314], ['spotdodge_stick_window', 0x318, 'i'], ['roll_stick_threshold', 0x31c],
   ['roll_stick_window', 0x320, 'i'], ['roll_arg', 0x324, 'i'], ['run_shield_lag', 0x410, 'i'],
   ['smash_charge_sound_frame', 0x7c8],
+  // Hits and knockback (ft/ftcoll.c, ftCo_Damage.c, ftCo_DownBound.c, fighter.c procUpdate/procCollResolve).
+  ['kb_weight_scale', 0xf4], ['kb_weight_base', 0xf8], ['kb_vel_merge_frames', 0xfc, 'i'], ['kb_launch_speed', 0x100],
+  ['kb_min', 0x104], ['kb_max', 0x108], ['kb_percent_mul', 0x110], ['kb_damage_mul', 0x114], ['kb_set_damage', 0x118],
+  ['kb_scale', 0x11c], ['kb_add', 0x120], ['kb_squat_mul', 0x124], ['kb_collide_threshold', 0x12c], ['kb_collide_frames', 0x130, 'i'],
+  ['kb_rehit_margin', 0x140], ['sakurai_air_angle', 0x144], ['sakurai_ground_angle', 0x148], ['sakurai_ground_kb_min', 0x14c],
+  ['sakurai_ground_kb_max', 0x150], ['hitstun_mul', 0x154], ['kb_level_1', 0x158], ['kb_level_2', 0x15c], ['kb_level_3', 0x160],
+  ['max_grounded_kb_on_landing', 0x164], ['hitlag_shake_mul', 0x168], ['hitlag_shake_add', 0x16c],
+  ['air_motion_frames', 0x18c, 'i'], ['air_motion_kb_mul', 0x190], ['hitlag_max', 0x194], ['hitlag_damage_mul', 0x198],
+  ['hitlag_add', 0x19c], ['hitlag_crouch_mul', 0x1a0], ['hitlag_electric_mul', 0x1a4], ['tech_window', 0x1d0], ['damage_land_down_speed', 0x1e0],
+  ['damage_land_speed', 0x1e4], ['ground_bounce_angle', 0x1e8], ['ground_bounce_mul', 0x1ec], ['down_bound_sfx_1', 0x1f0],
+  ['down_bound_sfx_2', 0x1f4], ['ground_kb_friction_mul', 0x200], ['kb_decay', 0x204], ['fly_sfx_2', 0x208], ['fly_sfx_1', 0x20c],
+  ['damagefall_drift_threshold', 0x210], ['damagefall_drift_window', 0x214, 'i'], ['fly_top_angle_min', 0x234],
+  ['fly_top_angle_max', 0x238], ['fly_roll_percent', 0x23c, 'i'], ['fly_roll_chance', 0x240], ['down_wait_frames', 0x424],
+  ['push_speed', 0x450], ['phantom_threshold', 0x7a8], ['hit_effect_big_kb', 0x3f0],
 ];
+
+/** Sandbag's own attributes (ext_attr: its knockback deceleration, ftCommon_SandbagGetKnockbackDeaccelX/Y). */
+export const SANDBAG_SPECIAL_FIELDS: Field[] = [['kb_decel_x', 0x0], ['kb_decel_y', 0x4]];
 
 export type NamedValues = Record<string, number>;
 

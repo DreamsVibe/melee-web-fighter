@@ -1,8 +1,10 @@
-// The engine: one fighter, a fixed 60 Hz step, deterministic, no DOM. Each step follows the order of
-// the game's fighter procs (ft/fighter.c Fighter_Create): animation + script + anim callback, input +
-// interrupts (IASA), physics + velocity integration, collision + landing/falling.
+// The engine for one fighter: a fixed 60 Hz step, deterministic, no DOM. Each step follows the order
+// of the game's fighter procs (ft/fighter.c Fighter_Create): hitlag, animation + script + anim
+// callback, input + interrupts (IASA), physics + velocity integration, collision + landing/falling,
+// then hitbox positions, attack collision and damage. A World (world.ts) runs several engines phase
+// by phase, as the game runs every fighter's proc of one priority before the next priority.
 import type { Cmd } from '../shared/move';
-import { restPose, worldMatrices } from '../render/pose';
+import { applyConstraints, restPose, worldMatrices } from '../render/pose';
 import { applyAnim } from '../render/animator';
 import { sampleTrack } from '../render/fobj';
 import { BTN, emptyFloats, padToFloats, type PadFloats, type PadState } from './pad';
@@ -10,8 +12,11 @@ import { runScript, startScript, F32_MAX } from './script';
 import { clampGroundVel } from './physics';
 import { loadEcb, ECB_AIR, ECB_GROUND } from './collision';
 import { SegKind, type Segment, type StageData } from './stagetypes';
-import { GA, Smash, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type Named, type Plugin, type Projectile } from './types';
+import { GA, Smash, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type ItemCmd, type Named, type Plugin, type Projectile } from './types';
 import { STATES, MS, type StateDef } from './states';
+import { collResolve, fighterNudge, moveIdOf, staleMultiplier } from './hits';
+import { damageExitHitlag, WAIT_REVERSE } from './damage';
+import type { World } from './world';
 
 const f = Math.fround;
 
@@ -30,6 +35,14 @@ export const MF = {
 /** Wait and the walks keep the jab window open (Fighter_ChangeMotionState resets hitlag_mul otherwise). */
 const KEEPS_JAB_WINDOW = (msid: number) => msid >= MS.Wait && msid <= MS.WalkFast;
 
+export function newHitbox(id: number): HitboxState {
+  return {
+    active: false, id, group: 0, bone: 0, damage: 0, count: 0, size: 0, offset: [0, 0, 0], angle: 0, kbg: 0, bkb: 0, wkb: 0,
+    element: 0, sfxLevel: 0, sfxKind: 0, ground: true, air: true, fighters: true,
+    pos: [0, 0], prevPos: [0, 0], pos3: [0, 0, 0], prevPos3: [0, 0, 0], fresh: true, victims: new Set(), tipVictims: new Set(), contact: [0, 0, 0], overlap: 0,
+  };
+}
+
 function newFighter(data: CharacterData): Fighter {
   const J = data.skeleton.length;
   const ecb = () => ({ top: 8, bottom: 0, left: -4, right: 4, sideY: 4 });
@@ -41,10 +54,10 @@ function newFighter(data: CharacterData): Fighter {
     script: { move: null, pc: 0, timer: 0, frameCount: 0, loopStack: [], callStack: [] },
     cmdVars: [0, 0, 0, 0], throwFlags: 0, allowInterrupt: false, reflecting: false,
     jabWindow: 0, jabCombo: false, jabRapid: false, jabLast: 0, jabPresses: 0,
-    smash: { state: Smash.None, frames: 0, hold: 0, rate: 1, sfx: false },
+    smash: { state: Smash.None, frames: 0, hold: 0, rate: 1, sfx: false, damageMul: 1 },
     rootPos: { x: 0, y: 0, z: 0 }, rootDelta: { x: 0, y: 0, z: 0 }, xRot: NaN,
     shieldHealth: data.common.shield_start_health ?? 60, lightshield: 0, shielding: false, ghosts: [],
-    hitboxes: Array.from({ length: 4 }, (_, id): HitboxState => ({ active: false, id, group: 0, bone: 0, damage: 0, size: 0, offset: [0, 0, 0], angle: 0, kbg: 0, bkb: 0, wkb: 0, element: 0, sfxLevel: 0, sfxKind: 0, pos: [0, 0], prevPos: [0, 0], fresh: true })),
+    hitboxes: Array.from({ length: 4 }, (_, id) => newHitbox(id)),
     input: { lx: 0, ly: 0, plx: 0, ply: 0, cx: 0, cy: 0, pcx: 0, pcy: 0, trigger: 0, ptrigger: 0, held: 0, pheld: 0, pressed: 0, released: 0 },
     hasPrevInput: false,
     timers: { lxTimer: 254, lyTimer: 254, lxSticky: 254, lySticky: 254, lxActivity: 254, lyActivity: 254, lxDuration: 254, lyDuration: 254, trigTimer: 254 },
@@ -54,7 +67,19 @@ function newFighter(data: CharacterData): Fighter {
     ecb: ecb(), prevEcb: ecb(), desiredEcb: ecb(), ecbLock: 0, ecbLocked: false,
     floor: null, floorSkip: null, envFlags: 0, lstickAngle: 0, dead: false,
     local: new Float32Array(J * 9), world: new Float32Array(J * 12), poseDirty: true,
+    percent: 0, percentTemp: 0, damageApplied: 0, kbApplied: 0, kbAngle: 0, hitDir: 1, hurtHeight: 1, dealtDamage: 0, sinceHit: -1,
+    damageLog: [], tipLog: [], phantomHitlag: 0, phantomFrames: 0, phantomDamage: 0, phantomSource: null, hitlagMul: 1, kbVel: { x: 0, y: 0 }, groundKbVel: 0, hitlag: 0, inHitlag: false, allowSdi: false, postHitlag: null,
+    hitstun: 0, inHitstun: false, invincible: false, intangible: false, invincibleFrames: 0, nudge: 0, attackId: 1, attackInstance: 0,
+    stale: { index: 0, moves: Array.from({ length: 10 }, () => ({ id: 0, instance: 0 })) },
   };
+}
+
+/** plStale_IncrementAttackInstance: one counter for the whole match (ids only need to differ). */
+let attackInstanceCounter = 1;
+export function nextAttackInstance(): number {
+  const n = attackInstanceCounter;
+  attackInstanceCounter = attackInstanceCounter >= 0xffff ? 1 : attackInstanceCounter + 1;
+  return n;
 }
 
 export class Engine implements EngineApi {
@@ -71,13 +96,19 @@ export class Engine implements EngineApi {
   pad: PadFloats = emptyFloats();
   private rest: Float32Array;
   private scratch: Float32Array;
-  private states = STATES;
+  private states: Map<number, StateDef> = STATES;
   private lastPos = { x: 0, y: 0 };
   /** Behavior modules by name (`behavior shine` in a .move file). */
   behaviors = new Map<string, Partial<StateDef>>();
+  /** The world this fighter is in, when there are others to hit and be hit by. */
+  world: World | null = null;
+  /** Percent never goes up (the settings' "Sandbag takes damage" switched off). */
+  noDamage = false;
 
   constructor(public data: CharacterData) {
     this.fighter = newFighter(data);
+    // Motion ids from 341 are each character's own: Fox's specials, Sandbag's WaitReverse.
+    if (data.id === 'sandbag') this.states = new Map([...[...STATES].filter(([id]) => id < 341), [WAIT_REVERSE.id, WAIT_REVERSE]]);
     this.a = { ...data.attrs };
     this.c = data.common;
     this.rest = restPose(data.skeleton);
@@ -131,7 +162,17 @@ export class Engine implements EngineApi {
     fp.dead = false;
     fp.shielding = false;
     fp.shieldHealth = this.c.shield_start_health ?? fp.shieldHealth;
+    this.resetDamage();
     this.changeMotion(MS.Fall, MF.None, 0, 1);
+  }
+
+  /** Back to 0% with no knockback, hitlag or hitstun (a respawn). */
+  resetDamage(): void {
+    const fp = this.fighter;
+    fp.percent = 0; fp.percentTemp = 0; fp.damageApplied = 0; fp.kbApplied = 0; fp.dealtDamage = 0; fp.damageLog.length = 0;
+    fp.tipLog.length = 0; fp.phantomHitlag = 0; fp.phantomFrames = 0; fp.phantomDamage = 0; fp.phantomSource = null; fp.hitlagMul = 1;
+    fp.kbVel.x = fp.kbVel.y = 0; fp.groundKbVel = 0; fp.hitlag = 0; fp.inHitlag = false; fp.allowSdi = false; fp.postHitlag = null;
+    fp.hitstun = 0; fp.inHitstun = false; fp.sinceHit = -1; fp.invincible = false; fp.intangible = false; fp.invincibleFrames = 0;
   }
 
   /** Places the fighter standing on a floor (used by validation traces). */
@@ -163,8 +204,23 @@ export class Engine implements EngineApi {
   }
 
   // ------------------------------------------------------------------ one frame
+  /** One frame for a fighter on its own (a World runs the same phases for every fighter in turn). */
   step(pad: PadState): void {
-    const fp = this.fighter;
+    if (this.world) { this.world.step([pad]); return; }
+    this.beginFrame(pad);
+    this.procHitlag();
+    this.procAnim();
+    this.itemsAnim();
+    this.procInput();
+    this.procUpdate();
+    this.itemsPhys();
+    this.procMap();
+    this.collPos();
+    collResolve(this);
+    this.endFrame();
+  }
+
+  beginFrame(pad: PadState): void {
     this.events.length = 0;
     for (const p of this.plugins) p.input?.(this, pad);
     padToFloats(pad, this.pad);
@@ -173,32 +229,58 @@ export class Engine implements EngineApi {
     Object.assign(this.a, this.data.attrs);
     for (const p of this.plugins) { const r = p.attributes?.(this, this.a); if (r) Object.assign(this.a, r); }
     for (const p of this.plugins) p.frameStart?.(this);
+  }
 
-    this.procAnim();
-    this.procInput();
-    this.procUpdate();
-    this.procMap();
-    this.updateHitboxes();
-    this.updateProjectiles();
-    // The shield regenerates while it is down (Fighter_procUpdate: shield_health += x27C).
-    if (!fp.shielding && fp.shieldHealth < this.c.shield_start_health) {
-      fp.shieldHealth = f(Math.min(this.c.shield_start_health, fp.shieldHealth + this.c.shield_regen));
-    }
-
-    const [l, r, b] = this.stage.blast;
-    if (fp.pos.x < l || fp.pos.x > r || fp.pos.y < b) {
+  /** After damage: the blast zones (a KO respawns), then the plugins' end of frame. */
+  endFrame(): void {
+    const fp = this.fighter;
+    const [l, r, b, t] = this.stage.blast;
+    if (fp.pos.x < l || fp.pos.x > r || fp.pos.y < b || (this.world && fp.pos.y > t)) {
       this.events.push({ type: 'ko', frame: this.frame });
-      const [sx, sy] = this.stage.spawn;
+      const [sx, sy] = this.world?.spawnPoint(this) ?? this.stage.spawn;
       this.spawn(sx, sy, fp.facing);
     }
     for (const p of this.plugins) p.frameEnd?.(this);
   }
 
+  // ---- Fighter_procHitlag
+  procHitlag(): void {
+    const fp = this.fighter;
+    if (fp.hitlag > 0) {
+      fp.hitlag -= 1;
+      if (fp.hitlag <= 0) {
+        fp.hitlag = 0;
+        this.exitHitlag();
+        fp.allowSdi = false;
+      }
+    }
+  }
+
+  /** Fighter_8006D10C: hitlag ends (post_hitlag_cb, then unfreeze). */
+  exitHitlag(): void {
+    const fp = this.fighter;
+    if (fp.postHitlag === 'damage') damageExitHitlag(this);
+    fp.inHitlag = false;
+  }
+
+  /** Fighter_UnkRecursiveFunc_8006D044: freeze for hitlag. */
+  enterHitlag(): void {
+    this.fighter.inHitlag = true;
+  }
+
   // ---- Fighter_procAnim
-  private procAnim(): void {
-    this.animStep();
-    this.smashChargeTick();
-    this.def().anim?.(this);
+  procAnim(): void {
+    const fp = this.fighter;
+    // The invincibility after a strong launch runs out (x1994).
+    if (fp.invincibleFrames) { fp.invincibleFrames -= 1; if (!fp.invincibleFrames) fp.invincible = false; }
+    if (!fp.inHitlag) {
+      if (fp.sinceHit !== -1) fp.sinceHit++;
+      this.animStep();
+      this.smashChargeTick();
+      this.def().anim?.(this);
+    }
+    // ftCommon_8007E0E4: grounded fighters overlapping each other get pushed apart.
+    fp.nudge = this.world ? fighterNudge(this, this.world.fighters) : 0;
   }
 
   /** ftCo_800DEF38: count charge frames; a full charge releases on its own. */
@@ -279,7 +361,7 @@ export class Engine implements EngineApi {
   animEndFrame(): number { return this.fighter.animEnd; }
 
   // ---- Fighter_procInput
-  private procInput(): void {
+  procInput(): void {
     const fp = this.fighter, c = this.c, inp = fp.input, t = fp.timers, k = fp.counters;
     const pad = this.pad;
     if (!fp.hasPrevInput) {
@@ -300,9 +382,10 @@ export class Engine implements EngineApi {
     else if (inp.trigger) held = (held | PAD_LR) >>> 0;
     if (held & BTN.Z) { held = (held | PAD_LR | BTN.A) >>> 0; inp.trigger = c.z_analog_value; }
     inp.held = held;
-    inp.pressed = (held & ((inp.pheld ^ held) >>> 0)) >>> 0;
-    inp.released = (inp.pheld & ((inp.pheld ^ held) >>> 0)) >>> 0;
-    this.smashChargeInput();
+    // Fighter_procInput_Inner1: during hitlag presses pile up until the fighter can act on them.
+    const pressed = (held & ((inp.pheld ^ held) >>> 0)) >>> 0, released = (inp.pheld & ((inp.pheld ^ held) >>> 0)) >>> 0;
+    if (fp.inHitlag) { inp.pressed = (inp.pressed | pressed) >>> 0; inp.released = (inp.released | released) >>> 0; }
+    else { inp.pressed = pressed; inp.released = released; }
 
     const clamp = (v: number) => (v > 254 ? 254 : v);
     t.lxDuration = clamp(t.lxDuration + 1);
@@ -335,6 +418,8 @@ export class Engine implements EngineApi {
     // The L-cancel counter (fp->x67F): frames since the last press of L/R/analog/Z.
     if (pr & PAD_LR) k.lr = 0; else if (k.lr < 255) k.lr++;
     if (pr & (BTN.L | BTN.R)) { k.lrDigitalPrev = k.lrDigital; k.lrDigital = 0; } else if (k.lrDigital < 255) k.lrDigital++;
+    if (fp.inHitlag) return;
+    this.smashChargeInput();
     // Fighter_UnkIncrementCounters_8006ABEC
     if (this.jumpInput()) { k.jumpPrev = k.jump; k.jump = 0; } else if (k.jump < 255) k.jump++;
     if ((pr & BTN.B) && inp.ly >= c.special_lw_threshold) { k.upBPrev = k.upB; k.upB = 0; } else if (k.upB < 255) k.upB++;
@@ -356,22 +441,47 @@ export class Engine implements EngineApi {
   }
 
   // ---- Fighter_procUpdate
-  private procUpdate(): void {
-    const fp = this.fighter;
+  procUpdate(): void {
+    const fp = this.fighter, c = this.c;
     this.lastPos.x = fp.pos.x; this.lastPos.y = fp.pos.y;
     fp.prevPos.x = fp.pos.x; fp.prevPos.y = fp.pos.y;
+    if (fp.inHitlag) return;
     this.def().phys?.(this);
+    // Knockback velocity decays: in the air along its own direction (Sandbag per axis, by its own
+    // deceleration); on the ground by friction, along the floor.
+    const kb = fp.kbVel;
+    if (kb.x !== 0 || kb.y !== 0) {
+      if (fp.ga === GA.Air) {
+        if (this.data.id === 'sandbag') {
+          kb.x = sandbagDecel(kb.x, this.data.special.kb_decel_x ?? 0);
+          kb.y = sandbagDecel(kb.y, this.data.special.kb_decel_y ?? 0.051);
+        } else {
+          const angle = Math.atan2(kb.y, kb.x);
+          if (Math.sqrt(kb.x * kb.x + kb.y * kb.y) < c.kb_decay) kb.x = kb.y = 0;
+          else { kb.x = f(kb.x - f(c.kb_decay * Math.cos(angle))); kb.y = f(kb.y - f(c.kb_decay * Math.sin(angle))); }
+        }
+        fp.groundKbVel = 0;
+      } else {
+        if (fp.groundKbVel === 0) fp.groundKbVel = kb.x;
+        // ftCommon_ApplyGroundedKnockbackFriction (floors are flat: normal (0, 1)).
+        const friction = f(this.a.ground_friction * c.ground_kb_friction_mul);
+        if (fp.groundKbVel < 0) { fp.groundKbVel = f(fp.groundKbVel + friction); if (fp.groundKbVel > 0) fp.groundKbVel = 0; }
+        else { fp.groundKbVel = f(fp.groundKbVel - friction); if (fp.groundKbVel < 0) fp.groundKbVel = 0; }
+        kb.x = fp.groundKbVel; kb.y = 0;
+      }
+    }
     fp.grVel = f(fp.grVel + fp.grAccel1 + fp.grAccel2);
     fp.grAccel1 = fp.grAccel2 = 0;
     fp.selfVel.x = f(fp.selfVel.x + fp.selfAccel.x);
     fp.selfVel.y = f(fp.selfVel.y + fp.selfAccel.y);
     fp.selfAccel.x = fp.selfAccel.y = 0;
-    fp.pos.x = f(fp.pos.x + fp.selfVel.x);
-    fp.pos.y = f(fp.pos.y + fp.selfVel.y);
+    fp.pos.x = f(fp.pos.x + fp.nudge);
+    fp.pos.x = f(f(fp.pos.x + fp.selfVel.x) + kb.x);
+    fp.pos.y = f(f(fp.pos.y + fp.selfVel.y) + kb.y);
   }
 
   // ---- Fighter_procMap
-  private procMap(): void {
+  procMap(): void {
     const fp = this.fighter;
     if (fp.ecbLock) { fp.ecbLock--; if (!fp.ecbLock) fp.ecbLocked = false; }
     this.updatePose();
@@ -402,6 +512,7 @@ export class Engine implements EngineApi {
     const s = this.data.modelScale;
     fp.local[3] = fp.local[4] = fp.local[5] = s;
     worldMatrices(this.data.skeleton, fp.local, fp.world, this.scratch);
+    if (this.data.constraints.length) applyConstraints(this.data.skeleton, this.data.constraints, fp.local, fp.world, this.scratch);
   }
 
   // ------------------------------------------------------------------ state machine
@@ -414,6 +525,9 @@ export class Engine implements EngineApi {
     if (!def) return; // states outside v1 are never entered
     const from = fp.motionName;
     if (from) for (const p of this.plugins) p.stateExit?.(this, from);
+    // ft_800890D0: a new attack (for stale moves) whenever the move id changes or is the default.
+    const moveId = moveIdOf(msid);
+    if (moveId === 1 || moveId !== fp.attackId) { fp.attackId = moveId; fp.attackInstance = nextAttackInstance(); }
     const hadRootMotion = !!fp.move && (fp.move.animFlags & 0x80000000) !== 0;
     fp.motionId = msid;
     fp.motionName = def.name;
@@ -473,15 +587,25 @@ export class Engine implements EngineApi {
   exec(fp: Fighter, c: Cmd): void {
     switch (c.op) {
       case 'hitbox': {
+        // ftAction_8007121C.
         const h = fp.hitboxes[c.f.id & 3];
-        if (!h.active || h.group !== c.f.group) { h.fresh = true; }
-        h.active = true; h.group = c.f.group; h.bone = c.f.bone; h.damage = c.f.damage; h.size = c.f.size;
-        h.offset[0] = c.f.x; h.offset[1] = c.f.y; h.offset[2] = c.f.z;
+        if (!h.active || h.group !== c.f.group) {
+          h.group = c.f.group; h.active = true; h.fresh = true;
+          // ftColl_800768A0: a new hitbox shares the victims of an active one in its group.
+          const other = fp.hitboxes.find((o) => o !== h && o.active && o.group === h.group);
+          h.victims = other ? new Set(other.victims) : new Set();
+          h.tipVictims = other ? new Set(other.tipVictims) : new Set();
+        }
+        h.bone = c.f.common_bone ? this.data.parts[c.f.bone] ?? 0 : c.f.bone;
+        this.setHitboxDamage(h, c.f.damage);
+        h.size = c.f.size;
+        h.offset[0] = c.f.z; h.offset[1] = c.f.y; h.offset[2] = c.f.x;
         h.angle = c.f.angle; h.kbg = c.f.kbg; h.bkb = c.f.bkb; h.wkb = c.f.wkb; h.element = c.f.element;
         h.sfxLevel = c.f.sfx_level; h.sfxKind = c.f.sfx_kind;
+        h.ground = !!c.f.ground; h.air = !!c.f.air; h.fighters = true;
         break;
       }
-      case 'hitbox_damage': fp.hitboxes[c.id & 3].damage = c.value; break;
+      case 'hitbox_damage': this.setHitboxDamage(fp.hitboxes[c.id & 3], c.value); break;
       case 'hitbox_size': fp.hitboxes[c.id & 3].size = c.value; break;
       case 'remove_hitbox': fp.hitboxes[c.id & 3].active = false; break;
       case 'clear_hitboxes': for (const h of fp.hitboxes) h.active = false; break;
@@ -511,7 +635,7 @@ export class Engine implements EngineApi {
       case 'smash_charge': {
         // ftCo_800DEE84: pending until the input step sees A still held.
         const s = fp.smash;
-        s.state = Smash.PreCharge; s.frames = 0; s.hold = c.frames;
+        s.state = Smash.PreCharge; s.frames = 0; s.hold = c.frames; s.damageMul = f(c.rate * 0.003906);
         break;
       }
       default: break;
@@ -572,46 +696,146 @@ export class Engine implements EngineApi {
     ];
   }
 
-  /** Fires a straight-flying projectile (it_8029C504: angle, speed, lifetime in frames). */
+  /** World position with depth of a point in a joint's space. */
+  jointPoint3(joint: number, ox: number, oy: number, oz: number, out: [number, number, number]): void {
+    this.updatePose();
+    const fp = this.fighter, w = fp.world, m = joint * 12;
+    out[0] = f(fp.pos.x + w[m] * ox + w[m + 1] * oy + w[m + 2] * oz + w[m + 3]);
+    out[1] = f(fp.pos.y + w[m + 4] * ox + w[m + 5] * oy + w[m + 6] * oz + w[m + 7]);
+    out[2] = f(w[m + 8] * ox + w[m + 9] * oy + w[m + 10] * oz + w[m + 11]);
+  }
+
+  /** ft_800892A0: the same move starts a new attack (a new rapid jab loop, a repeated down tilt). */
+  renewAttack(): void {
+    this.fighter.attackInstance = nextAttackInstance();
+  }
+
+  /** ftColl_8007ABD0: a hitbox's damage, scaled by a charged smash and reduced by staling. */
+  setHitboxDamage(h: HitboxState, damage: number): void {
+    const s = this.fighter.smash;
+    const scaled = s.state === Smash.Release ? f(damage * f(f((s.damageMul - 1) * f(s.frames / s.hold)) + 1)) : damage;
+    h.count = Math.trunc(scaled);
+    h.damage = f(scaled * staleMultiplier(this.fighter, this.fighter.attackId, this.c));
+  }
+
+  /** Fires Fox's blaster shot: an item flying at `angle` (it_8029C504), with its own hitbox script. */
   fireProjectile(kind: string, x: number, y: number, angle: number, speed: number, lifetime: number): Projectile {
-    const p: Projectile = { kind, x, y, prevX: x, prevY: y, vx: f(speed * Math.cos(angle)), vy: f(speed * Math.sin(angle)), angle, age: 0, lifetime };
+    let a = angle;
+    while (a < 0) a += Math.PI * 2;
+    while (a > Math.PI * 2) a -= Math.PI * 2;
+    const fp = this.fighter;
+    const p: Projectile = {
+      kind, x, y, prevX: x, prevY: y, vx: f(speed * Math.cos(a)), vy: f(speed * Math.sin(a)), angle: a, age: 0, lifetime,
+      scale: 0, speed, facing: a < Math.PI / 2 || a > Math.PI * 1.5 ? 1 : -1, hitboxes: Array.from({ length: 4 }, (_, id) => newHitbox(id)),
+      script: this.data.laser ? { cmds: this.data.laser.states[0], pc: 0, timer: 0 } : null,
+      attackId: fp.attackId, attackInstance: fp.attackInstance, hit: false, dead: false,
+    };
     this.projectiles.push(p);
+    this.itemScript(p, true);
     this.events.push({ type: 'projectile', projectile: p, frame: this.frame });
     return p;
   }
 
-  private updateProjectiles(): void {
-    const list = this.projectiles;
+  /**
+   * The item's command script (it/itanimlist.c it_802799E4): wait, hitboxes, damage changes, removal.
+   * The run at spawn (Item_80268E5C) starts from timer 0; later ones count the timer down first.
+   */
+  private itemScript(p: Projectile, first = false): void {
+    const s = p.script;
+    if (!s) return;
+    if (!first) s.timer -= 1;
+    while (s.timer <= 0 && s.pc < s.cmds.length) {
+      const c: ItemCmd = s.cmds[s.pc++];
+      switch (c.op) {
+        case 'wait': s.timer += c.n; break;
+        case 'hitbox': {
+          const h = p.hitboxes[c.id & 3];
+          if (!h.active || h.group !== c.group) { h.group = c.group; h.active = true; h.fresh = true; h.victims = new Set(); h.tipVictims = new Set(); }
+          h.bone = 0; h.count = c.damage; h.damage = f(c.damage * staleMultiplier(this.fighter, p.attackId, this.c));
+          h.size = c.size; h.offset[0] = c.offset[0]; h.offset[1] = c.offset[1]; h.offset[2] = c.offset[2];
+          h.angle = c.angle; h.kbg = c.kbg; h.wkb = c.wkb; h.bkb = c.bkb; h.element = c.element; h.sfxLevel = c.sfxLevel; h.sfxKind = c.sfxKind;
+          h.ground = !!c.ground; h.air = !!c.air; h.fighters = !!c.fighters;
+          break;
+        }
+        case 'hitbox_damage': { const h = p.hitboxes[c.id & 3]; h.count = c.value; h.damage = f(c.value * staleMultiplier(this.fighter, p.attackId, this.c)); break; }
+        case 'remove_hitbox': p.hitboxes[c.id & 3].active = false; break;
+        case 'clear_hitboxes': for (const h of p.hitboxes) h.active = false; break;
+      }
+    }
+  }
+
+  /** Items' animation step (priority 1): the ray grows (Item_UpdateRayAnimation) and runs its script. */
+  itemsAnim(): void {
+    for (const p of this.projectiles) {
+      if (p.age === 0) continue; // spawned this frame: its first update already ran
+      p.vx = f(p.speed * Math.cos(p.angle)); p.vy = f(p.speed * Math.sin(p.angle));
+      p.facing = p.vx > 0 ? 1 : -1;
+      this.itemScript(p);
+    }
+  }
+
+  /** Items' physics (priority 4): move, age, and go when the lifetime is over or they dealt damage. */
+  itemsPhys(): void {
+    const list = this.projectiles, max = this.data.laser?.scale ?? 3;
     let n = 0;
     for (const p of list) {
+      p.scale = f(p.scale + Math.abs(p.speed) / 11.25);
+      if (p.scale > max) p.scale = max;
       p.prevX = p.x; p.prevY = p.y;
       p.x = f(p.x + p.vx); p.y = f(p.y + p.vy);
-      if (++p.age < p.lifetime) list[n++] = p;
+      if (++p.age < p.lifetime && !p.dead) list[n++] = p;
     }
     list.length = n;
   }
 
-  // ------------------------------------------------------------------ hitboxes (debug draw, plugins)
-  private updateHitboxes(): void {
+  // ------------------------------------------------------------------ hitboxes (priority 9)
+  /** ftColl_8007AE80 / Item_80269A9C: hitbox positions this frame and last (the swept capsules). */
+  collPos(): void {
     const fp = this.fighter;
     let any = false;
     for (const h of fp.hitboxes) if (h.active) any = true;
-    if (!any) return;
-    this.updatePose();
-    for (const h of fp.hitboxes) {
-      if (!h.active) continue;
-      const m = h.bone * 12, w = fp.world;
-      if (m + 11 >= w.length) continue;
-      const [ox, oy, oz] = h.offset;
-      const x = w[m] * ox + w[m + 1] * oy + w[m + 2] * oz + w[m + 3];
-      const y = w[m + 4] * ox + w[m + 5] * oy + w[m + 6] * oz + w[m + 7];
-      const px = fp.pos.x + x, py = fp.pos.y + y;
-      if (h.fresh) { h.prevPos[0] = px; h.prevPos[1] = py; h.fresh = false; }
-      else { h.prevPos[0] = h.pos[0]; h.prevPos[1] = h.pos[1]; }
-      h.pos[0] = px; h.pos[1] = py;
-      this.events.push({ type: 'hitbox', hitbox: h, frame: this.frame });
+    if (any) {
+      this.updatePose();
+      for (const h of fp.hitboxes) {
+        if (!h.active) continue;
+        if (h.bone * 12 + 11 >= fp.world.length) continue;
+        advanceHitbox(h, () => this.jointPoint3(h.bone, h.offset[0], h.offset[1], h.offset[2], h.pos3));
+        this.events.push({ type: 'hitbox', hitbox: h, frame: this.frame });
+      }
+    }
+    for (const p of this.projectiles) {
+      // The ray's joint: yaw by its facing, pitch along the flight, stretched along Z by its length.
+      const ry = Math.PI / 2 * p.facing, rx = Math.PI + Math.atan2(p.vy, p.facing === 1 ? -p.vx : p.vx);
+      const sX = Math.sin(rx), cX = Math.cos(rx), sY = Math.sin(ry), cY = Math.cos(ry);
+      for (const h of p.hitboxes) {
+        if (!h.active) continue;
+        advanceHitbox(h, () => {
+          const [ox, oy, oz0] = h.offset, oz = oz0 * p.scale;
+          // R = Ry * Rx (no Z rotation) applied to the offset.
+          const x1 = ox, y1 = cX * oy - sX * oz, z1 = sX * oy + cX * oz;
+          h.pos3[0] = f(p.x + cY * x1 + sY * z1); h.pos3[1] = f(p.y + y1); h.pos3[2] = f(-sY * x1 + cY * z1);
+        });
+      }
     }
   }
+}
+
+/** A hitbox's new position; the first one after (re)creation is also its previous (no sweep). */
+function advanceHitbox(h: HitboxState, compute: () => void): void {
+  const prev0 = h.pos3[0], prev1 = h.pos3[1], prev2 = h.pos3[2];
+  compute();
+  if (h.fresh) { h.prevPos3[0] = h.pos3[0]; h.prevPos3[1] = h.pos3[1]; h.prevPos3[2] = h.pos3[2]; h.fresh = false; }
+  else { h.prevPos3[0] = prev0; h.prevPos3[1] = prev1; h.prevPos3[2] = prev2; }
+  h.prevPos[0] = h.prevPos3[0]; h.prevPos[1] = h.prevPos3[1];
+  h.pos[0] = h.pos3[0]; h.pos[1] = h.pos3[1];
+}
+
+/** ftCommon_SandbagKnockbackDeaccel. */
+function sandbagDecel(kb: number, d: number): number {
+  let r = kb;
+  if (kb > 0) { r = f(r - d); if (r < 0) return 0; }
+  else if (kb < 0) { r = f(r + d); if (r > 0) return 0; }
+  return r;
 }
 
 /** Landing: gr_vel = self_vel.x clamped to the ground max (ftCommon_8007D6A4). */

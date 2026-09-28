@@ -37,7 +37,21 @@ def absolute(script_text: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def run(exe: Path, iso: Path, cwd: Path, script: Path, trace: Path, card: Path, work: Path, frames: int) -> None:
+# A script that says "# p2 sandbag" on a line of its own gets Sandbag as player 2 (the prelude picks
+# Luigi; --p2-ckind swaps the pick before the match loads).
+P2_KINDS = {"sandbag": 31}
+
+
+def p2_kind(script_text: str) -> int | None:
+    for line in script_text.splitlines():
+        words = line.strip().lstrip("#").split()
+        if len(words) == 2 and words[0] == "p2" and words[1] in P2_KINDS:
+            return P2_KINDS[words[1]]
+    return None
+
+
+def run(exe: Path, iso: Path, cwd: Path, script: Path, trace: Path, card: Path, work: Path, frames: int,
+        p2: int | None = None) -> None:
     user = work / "user"
     user.mkdir(parents=True, exist_ok=True)
     (user / "user.json").write_text("{}", encoding="utf-8")   # signed out: the menus stay offline
@@ -47,6 +61,8 @@ def run(exe: Path, iso: Path, cwd: Path, script: Path, trace: Path, card: Path, 
            "--script", str(script)]
     if trace:
         cmd += ["--fighter-trace", str(trace)]
+    if p2 is not None:
+        cmd += ["--p2-ckind", str(p2)]
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=900)
     if proc.returncode:
         sys.exit(f"{script.name}: melee_port exited {proc.returncode}\n{proc.stderr[-2000:]}")
@@ -86,12 +102,13 @@ def main() -> None:
         scripts = [s for s in scripts if s.stem in args.names]
     for s in scripts:
         full = work / f"{s.stem}.full.txt"
-        full.write_text(prelude + absolute(s.read_text(encoding="utf-8")), encoding="utf-8")
+        text = s.read_text(encoding="utf-8")
+        full.write_text(prelude + absolute(text), encoding="utf-8")
         card = work / f"card-{s.stem}"
         shutil.rmtree(card, ignore_errors=True)
         shutil.copytree(seed, card)
         trace = OUT / f"{s.stem}.csv"
-        run(exe, iso, root, full, trace, card, work, args.frames)
+        run(exe, iso, root, full, trace, card, work, args.frames, p2_kind(text))
         rows = max(0, len(trace.read_text().splitlines()) - 1) if trace.exists() else 0
         print(f"{s.stem}: {rows} frames -> {trace.relative_to(REPO)}")
 

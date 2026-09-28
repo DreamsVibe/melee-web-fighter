@@ -23,6 +23,10 @@ export async function foxData(disc: Disc, overrides: FileMap = new Map()): Promi
   return loadCharacter(effectiveFiles(all), 'characters/fox/');
 }
 
+export async function sandbagData(disc: Disc): Promise<CharacterData> {
+  return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/sandbag/');
+}
+
 /** Final Destination's main floor: x from -85.5657 to 85.5657 at y = 0 (with walls below). */
 export function finalDestination(): StageData {
   const L = -85.5657, R = 85.5657;

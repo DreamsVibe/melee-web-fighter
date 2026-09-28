@@ -5,8 +5,9 @@ import { decodeCommand, formatMove, type Cmd, type MoveFile } from '../shared/mo
 import { COMMON_SUBMOTIONS, FOX_SUBMOTIONS } from './submotions';
 import type { ActionEntry } from './actions';
 
-export function submotionName(index: number): string {
-  return index < COMMON_SUBMOTIONS.length ? COMMON_SUBMOTIONS[index] : FOX_SUBMOTIONS[index - COMMON_SUBMOTIONS.length] ?? `Action${index}`;
+/** A character's action name: the common ones, then its own (`special`, in submotion order). */
+export function submotionName(index: number, special: readonly string[] = FOX_SUBMOTIONS): string {
+  return index < COMMON_SUBMOTIONS.length ? COMMON_SUBMOTIONS[index] : special[index - COMMON_SUBMOTIONS.length] ?? `Action${index}`;
 }
 
 const LANDING_LAG: Record<string, string> = {
@@ -15,7 +16,7 @@ const LANDING_LAG: Record<string, string> = {
 };
 
 /** Fox's moves that need logic data can't express, by the behavior module that runs them. */
-const BEHAVIOR_OF: Array<[RegExp, string]> = [
+export const FOX_BEHAVIORS: Array<[RegExp, string]> = [
   [/^Special(Air)?N/, 'blaster'], [/^Special(Air)?S/, 'illusion'], [/^SpecialHi/, 'firefox'],
   [/^Special(Air)?Lw/, 'shine'], [/^SpecialAppeal/, 'appeal'],
 ];
@@ -47,14 +48,17 @@ export function scriptBody(a: Archive, start: number): { body: Cmd[]; raw: numbe
   return { body, raw };
 }
 
-export function convertMoves(plfx: Archive, actions: ActionEntry[], attributes: Record<string, number>, soundName: (id: number) => string): Array<{ name: string; text: string; move: MoveFile }> {
+export function convertMoves(
+  plfx: Archive, actions: ActionEntry[], attributes: Record<string, number>, soundName: (id: number) => string,
+  special: readonly string[] = FOX_SUBMOTIONS, behaviors: Array<[RegExp, string]> = FOX_BEHAVIORS,
+): Array<{ name: string; text: string; move: MoveFile }> {
   const out: Array<{ name: string; text: string; move: MoveFile }> = [];
   for (const act of actions) {
     if (!act.script && !act.anim) continue;
-    const name = submotionName(act.index);
+    const name = submotionName(act.index, special);
     const move: MoveFile = { name, animation: act.anim || null, body: [], animFlags: act.flags };
     if (LANDING_LAG[name]) move.landingLag = attributes[LANDING_LAG[name]];
-    const behavior = BEHAVIOR_OF.find(([re]) => re.test(name));
+    const behavior = behaviors.find(([re]) => re.test(name));
     if (behavior) move.behavior = behavior[1];
     if (act.script) move.body = scriptBody(plfx, act.script).body;
     out.push({ name, move, text: formatMove(move, soundName) });

@@ -1,0 +1,13 @@
+# p2 sandbag
+# Shine from close: Sandbag pops away; then a dash attack.
+230 sx=127
+270
+300 sy=-127 B
+301 sy=-127
+330
+400 sx=-127
+403
+404 sx=127
+420 sx=127 A
+421
+700

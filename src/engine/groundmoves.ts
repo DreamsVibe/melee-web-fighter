@@ -207,7 +207,8 @@ def({
     // Each pass through the loop the script raises throw flag b3; without A activity since the last
     // one, the rapid jab ends.
     const fp = e.fighter;
-    if (fp.animFrame >= 0 && fp.animFrame < fp.animRate) fp.mv.rapidLooped = 1;
+    // ft_800892A0: each pass through the loop is a new attack for staling.
+    if (fp.animFrame >= 0 && fp.animFrame < fp.animRate) { fp.mv.rapidLooped = 1; e.renewAttack(); }
     if (fp.throwFlags & (1 << 3)) {
       fp.throwFlags &= ~(1 << 3);
       if (fp.mv.rapidLooped && !fp.mv.rapidMashed) e.changeMotion(MS.Attack100End, MF.None, 0, 1);
@@ -278,6 +279,8 @@ function attackLw3Enter(e: Engine): void {
   fp.allowInterrupt = false;
   fp.mv.lw3Again = 0;
   e.changeMotion(MS.AttackLw3, MF.None, 0, 1);
+  // ftCo_AttackLw3 callUnk (x21EC): every down tilt, even a repeated one, is a new attack for staling.
+  e.renewAttack();
   e.animStep();
 }
 
