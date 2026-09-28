@@ -38,7 +38,7 @@ choose it again; your settings and edits are kept.
 
 ## Controls
 
-| GameCube | Keyboard | Standard gamepad (remappable in settings) |
+| GameCube | Keyboard (default) | Standard gamepad (default) |
 |---|---|---|
 | Control stick | Arrows or WASD (hold Shift to walk) | Left stick |
 | X (jump) | Space or I | Y |
@@ -51,7 +51,9 @@ choose it again; your settings and edits are kept.
 | Start | Enter | Start |
 | Debug draw | F9 | — |
 
-On the keyboard a direction with A is a smash; hold Shift as well for a tilt. Falling off the
+Both the keyboard and the gamepad can be remapped in the extension's settings; there you can also
+bind Y, L and the C-stick, which have no keys by default. On the keyboard a direction with A is a
+smash; hold Shift as well for a tilt. Falling off the
 screen respawns Fox at the top.
 
 Fox has his whole moveset: dash dance, wavedash and waveland, short hop and fast fall, dropping

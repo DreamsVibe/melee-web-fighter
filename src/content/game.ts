@@ -125,6 +125,7 @@ export class Game {
     const s = (this.settings = withDefaults(this.bridge.settings));
     this.input.port = s.adapterPort - 1;
     this.input.mapping = s.gamepad;
+    this.input.setKeyboard(s.keyboard);
     if (s.debug) this.debug.setEnabled(true);
     this.view.ppu = s.fighterHeightPx / this.fighterHeight;
     this.audio?.setVolume(s.volume);

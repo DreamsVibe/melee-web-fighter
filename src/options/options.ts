@@ -1,5 +1,5 @@
 // Settings page: adapter helper status, mapping, display/sound, plugins, overrides (edit, toggle, zip).
-import { loadSettings, saveSettings, type Settings, type GamepadMapping } from '../shared/settings';
+import { DEFAULT_KEYBOARD, KEY_ACTIONS, loadSettings, saveSettings, type GamepadMapping, type KeyAction, type Settings } from '../shared/settings';
 import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
 import { AdapterDecoder, BTN, emptyPad } from '../engine/pad';
 import { announceChange, deleteFiles, getFile, listFiles, putFiles, asText } from '../shared/db';
@@ -60,6 +60,13 @@ async function init(): Promise<void> {
   $('installCmd').textContent = `powershell -ExecutionPolicy Bypass -File helper\\install.ps1 -ExtensionId ${chrome.runtime.id}`;
   watchAdapter();
   renderMapping();
+  renderKeys();
+  $('resetKeys').onclick = async () => {
+    settings.keyboard = DEFAULT_KEYBOARD;
+    await saveSettings({ keyboard: settings.keyboard });
+    $('keysMsg').textContent = 'Keyboard reset to defaults.';
+    renderKeys();
+  };
 
   // --- display
   const height = $<HTMLInputElement>('height');
@@ -126,6 +133,13 @@ function renderMapping(): void {
       settings.gamepad = { ...settings.gamepad, [b]: idx };
       await saveSettings({ gamepad: settings.gamepad });
       renderMapping();
+  renderKeys();
+  $('resetKeys').onclick = async () => {
+    settings.keyboard = DEFAULT_KEYBOARD;
+    await saveSettings({ keyboard: settings.keyboard });
+    $('keysMsg').textContent = 'Keyboard reset to defaults.';
+    renderKeys();
+  };
     });
     tr.innerHTML = `<td><b>${b.toUpperCase()}</b></td><td>pad button ${settings.gamepad[b]}</td>`;
     const td = document.createElement('td'); td.append(btn); tr.append(td);
@@ -147,6 +161,86 @@ function waitForPadButton(btn: HTMLButtonElement): Promise<number | null> {
       requestAnimationFrame(poll);
     };
     poll();
+  });
+}
+
+// ---------------------------------------------------------------- keyboard mapping
+const KEY_LABELS: Record<KeyAction, string> = {
+  up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right', walk: 'Walk (half tilt, hold)',
+  a: 'A', b: 'B (specials)', x: 'X (jump)', y: 'Y (jump)', z: 'Z', l: 'L', r: 'R (air dodge, L-cancel)', start: 'Start',
+  dpadUp: 'D-pad up (taunt)', dpadDown: 'D-pad down (Arwing taunt)',
+  cUp: 'C-stick up', cDown: 'C-stick down', cLeft: 'C-stick left', cRight: 'C-stick right',
+};
+const ARROWS: Record<string, string> = { ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
+
+function keyName(code: string): string {
+  if (ARROWS[code]) return ARROWS[code];
+  const m = /^(Key|Digit)(.)$/.exec(code);
+  if (m) return m[2];
+  return code.replace(/^Numpad/, 'Num ').replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$2 $1');
+}
+
+function renderKeys(): void {
+  const t = $<HTMLTableElement>('keys');
+  t.replaceChildren(...KEY_ACTIONS.map((action) => {
+    const tr = document.createElement('tr');
+    const name = document.createElement('td'); name.innerHTML = `<b>${KEY_LABELS[action]}</b>`;
+    const keys = document.createElement('td');
+    const bound = settings.keyboard[action];
+    if (!bound.length) keys.innerHTML = '<span class="muted">unbound</span>';
+    for (const code of bound) {
+      const chip = document.createElement('button');
+      chip.textContent = `${keyName(code)} ×`;
+      chip.title = `Unbind ${code}`;
+      chip.onclick = () => void setKeys({ [action]: bound.filter((c) => c !== code) }, `Unbound ${keyName(code)}.`);
+      keys.append(chip, ' ');
+    }
+    const add = document.createElement('button');
+    add.textContent = 'add key';
+    add.onclick = () => waitForKey(add).then((code) => {
+      if (code === null) { $('keysMsg').textContent = ''; return; }
+      if (code === 'F9') { $('keysMsg').textContent = 'F9 is the debug draw toggle; pick another key.'; return; }
+      if (/^(Control|Alt|Meta|OS)/.test(code)) { $('keysMsg').textContent = "Ctrl, Alt and the Windows key can't be bound: they're left to the browser's shortcuts."; return; }
+      if (bound.includes(code)) { $('keysMsg').textContent = ''; return; }
+      const patch: Partial<Record<KeyAction, string[]>> = {};
+      const from = KEY_ACTIONS.filter((a) => a !== action && settings.keyboard[a].includes(code));
+      for (const a of from) patch[a] = settings.keyboard[a].filter((c) => c !== code);
+      patch[action] = [...bound, code];
+      const moved = from.length ? ` (moved from ${from.map((a) => KEY_LABELS[a]).join(', ')})` : '';
+      void setKeys(patch, `${keyName(code)} → ${KEY_LABELS[action]}${moved}.`);
+    });
+    const td = document.createElement('td'); td.append(add);
+    tr.append(name, keys, td);
+    return tr;
+  }));
+}
+
+async function setKeys(patch: Partial<Record<KeyAction, string[]>>, msg: string): Promise<void> {
+  settings.keyboard = { ...settings.keyboard, ...patch };
+  await saveSettings({ keyboard: settings.keyboard });
+  $('keysMsg').textContent = msg;
+  renderKeys();
+}
+
+/** The next key pressed (its KeyboardEvent.code), or null on Escape, a click elsewhere, or 8 s idle. */
+function waitForKey(btn: HTMLButtonElement): Promise<string | null> {
+  btn.textContent = 'press a key… (Esc cancels)';
+  return new Promise((resolve) => {
+    const done = (code: string | null) => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+      clearTimeout(timer);
+      btn.textContent = 'add key';
+      resolve(code);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault(); e.stopPropagation();
+      done(e.code === 'Escape' || !e.code ? null : e.code);
+    };
+    const onPointer = () => done(null);
+    const timer = setTimeout(() => done(null), 8000);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onPointer, true);
   });
 }
 

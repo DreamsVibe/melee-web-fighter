@@ -7,6 +7,14 @@ export interface GamepadMapping {
   stickX: number; stickY: number; cX: number; cY: number;
 }
 
+/** Keyboard binding: a list of KeyboardEvent.code values for each pad input. */
+export const KEY_ACTIONS = [
+  'up', 'down', 'left', 'right', 'walk', 'a', 'b', 'x', 'y', 'z', 'l', 'r', 'start', 'dpadUp', 'dpadDown',
+  'cUp', 'cDown', 'cLeft', 'cRight',
+] as const;
+export type KeyAction = typeof KEY_ACTIONS[number];
+export type KeyboardMapping = Record<KeyAction, string[]>;
+
 export interface Settings {
   adapterPort: number;           // 1-4
   fighterHeightPx: number;       // Fox's standing height on the page, sets px_per_unit
@@ -15,6 +23,7 @@ export interface Settings {
   disabledOverrides: string[];   // override paths switched off
   plugins: Record<string, boolean>;
   gamepad: GamepadMapping;
+  keyboard: KeyboardMapping;
   minSolidPx: number;
   minSegmentPx: number;
   maxSegments: number;
@@ -26,6 +35,14 @@ export const DEFAULT_GAMEPAD: GamepadMapping = {
   stickX: 0, stickY: 1, cX: 2, cY: 3,
 };
 
+export const DEFAULT_KEYBOARD: KeyboardMapping = {
+  up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'], left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
+  walk: ['ShiftLeft', 'ShiftRight'],
+  a: ['KeyJ'], b: ['KeyK'], x: ['Space', 'KeyI'], y: [], z: ['KeyU'], l: [], r: ['KeyL'], start: ['Enter'],
+  dpadUp: ['KeyP'], dpadDown: ['KeyO'],
+  cUp: [], cDown: [], cLeft: [], cRight: [],
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   adapterPort: 1,
   fighterHeightPx: 90,
@@ -34,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   disabledOverrides: [],
   plugins: { 'moon-gravity': false },
   gamepad: DEFAULT_GAMEPAD,
+  keyboard: DEFAULT_KEYBOARD,
   minSolidPx: 40,
   minSegmentPx: 24,
   maxSegments: 400,
@@ -42,6 +60,9 @@ export const DEFAULT_SETTINGS: Settings = {
 export function withDefaults(raw: Record<string, unknown>): Settings {
   const s = { ...DEFAULT_SETTINGS, ...raw } as Settings;
   s.gamepad = { ...DEFAULT_GAMEPAD, ...(raw.gamepad as object ?? {}) };
+  const kb = (raw.keyboard ?? {}) as Partial<Record<string, unknown>>;
+  s.keyboard = { ...DEFAULT_KEYBOARD };
+  for (const a of KEY_ACTIONS) if (Array.isArray(kb[a])) s.keyboard[a] = (kb[a] as unknown[]).filter((k): k is string => typeof k === 'string');
   s.plugins = { ...DEFAULT_SETTINGS.plugins, ...(raw.plugins as object ?? {}) };
   return s;
 }
