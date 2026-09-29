@@ -15,9 +15,10 @@ export class World {
   respawn: ((e: Engine) => [number, number]) | null = null;
   private idle = emptyPad();
 
-  add(e: Engine): Engine {
+  /** Adds a fighter, last or at index `at` (fighter i is driven by pad i). */
+  add(e: Engine, at = this.fighters.length): Engine {
     e.world = this;
-    this.fighters.push(e);
+    this.fighters.splice(at, 0, e);
     return e;
   }
 

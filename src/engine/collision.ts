@@ -206,6 +206,45 @@ export function groundCollision(fp: Fighter, stage: StageData, lastPos: { x: num
   return false;
 }
 
+/**
+ * mpColl_80044164 (left ledges, facing right) and mpColl_800443C4 (right ledges, facing left), with
+ * mpLib_80051BA8_Floor's search: a box reaching `snap` units ahead of the ECB, around `snapY` above
+ * the fighter, swept over this frame's movement, finds the nearest grabbable floor end inside it. The
+ * fighter has to be past the end, with the ECB bottom below it. Page lines are flat and there are no
+ * walls between the fighter and a ledge, so the game's line-of-sight checks always pass. `dir` 0
+ * looks both ways (Firefox's flight).
+ */
+export function findLedge(fp: Fighter, stage: StageData, lastPos: { x: number; y: number }, dir: -1 | 0 | 1, snap: [number, number, number]): { seg: Segment; side: 1 | -1 } | null {
+  const [snapX, snapY, height] = snap, half = 0.5 * height, e = fp.ecb;
+  const bottom = Math.min(lastPos.y, fp.pos.y) + snapY - half, top = Math.max(lastPos.y, fp.pos.y) + snapY + half;
+  const search = (side: 1 | -1): Segment | null => {
+    const left = side === 1 ? Math.min(lastPos.x, fp.pos.x) : -snapX + Math.min(lastPos.x, fp.pos.x) + e.left;
+    const right = side === 1 ? snapX + Math.max(lastPos.x, fp.pos.x) + e.right : Math.max(lastPos.x, fp.pos.x);
+    let best: Segment | null = null;
+    for (const s of stage.segments) {
+      if (s.kind !== SegKind.Floor && s.kind !== SegKind.Platform) continue;
+      if (!(s.ledges & (side === 1 ? 1 : 2)) || s === fp.floorSkip) continue;
+      // The line and the box overlap on both axes (a flat line: its height strictly inside the box).
+      if (!(Math.abs(s.x0 + s.x1 - (right + left)) < s.x1 - s.x0 + (right - left))) continue;
+      if (!(Math.abs(2 * s.y0 - (top + bottom)) < top - bottom)) continue;
+      if (!best || (side === 1 ? s.x0 < best.x0 : s.x1 > best.x1)) best = s;
+    }
+    if (!best) return null;
+    const edgeX = side === 1 ? best.x0 : best.x1;
+    // Off the stage past the ledge, and hanging below it.
+    if (side === 1 ? !(fp.pos.x < edgeX) : !(fp.pos.x > edgeX)) return null;
+    return fp.pos.y + e.bottom < best.y0 ? best : null;
+  };
+  if (dir >= 0) { const s = search(1); if (s) return { seg: s, side: 1 }; }
+  if (dir <= 0) { const s = search(-1); if (s) return { seg: s, side: -1 }; }
+  return null;
+}
+
+/** A ledge's corner: the left end of its floor for a left ledge, the right end for a right one. */
+export function ledgePoint(ledge: { seg: Segment; side: 1 | -1 }): [number, number] {
+  return ledge.side === 1 ? [ledge.seg.x0, ledge.seg.y0] : [ledge.seg.x1, ledge.seg.y1];
+}
+
 export function isOnPlatform(fp: Fighter): boolean {
   return fp.ga === GA.Ground && !!fp.floor && fp.floor.kind === SegKind.Platform;
 }

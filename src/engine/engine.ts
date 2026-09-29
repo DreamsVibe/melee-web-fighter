@@ -69,7 +69,8 @@ function newFighter(data: CharacterData): Fighter {
     local: new Float32Array(J * 9), world: new Float32Array(J * 12), poseDirty: true,
     percent: 0, percentTemp: 0, damageApplied: 0, kbApplied: 0, kbAngle: 0, hitDir: 1, hurtHeight: 1, dealtDamage: 0, sinceHit: -1,
     damageLog: [], tipLog: [], phantomHitlag: 0, phantomFrames: 0, phantomDamage: 0, phantomSource: null, hitlagMul: 1, kbVel: { x: 0, y: 0 }, groundKbVel: 0, hitlag: 0, inHitlag: false, allowSdi: false, postHitlag: null,
-    hitstun: 0, inHitstun: false, invincible: false, intangible: false, invincibleFrames: 0, nudge: 0, attackId: 1, attackInstance: 0,
+    hitstun: 0, inHitstun: false, invincible: false, intangible: false, invincibleFrames: 0, intangibleFrames: 0, bodyState: 0,
+    ledge: null, ledgeCooldown: 0, nudge: 0, attackId: 1, attackInstance: 0,
     stale: { index: 0, moves: Array.from({ length: 10 }, () => ({ id: 0, instance: 0 })) },
   };
 }
@@ -161,6 +162,8 @@ export class Engine implements EngineApi {
     fp.ga = GA.Air;
     fp.jumpsUsed = 1;
     fp.floor = null;
+    fp.ledge = null;
+    fp.ledgeCooldown = 0;
     fp.dead = false;
     fp.shielding = false;
     fp.shieldHealth = this.c.shield_start_health ?? fp.shieldHealth;
@@ -175,6 +178,7 @@ export class Engine implements EngineApi {
     fp.tipLog.length = 0; fp.phantomHitlag = 0; fp.phantomFrames = 0; fp.phantomDamage = 0; fp.phantomSource = null; fp.hitlagMul = 1;
     fp.kbVel.x = fp.kbVel.y = 0; fp.groundKbVel = 0; fp.hitlag = 0; fp.inHitlag = false; fp.allowSdi = false; fp.postHitlag = null;
     fp.hitstun = 0; fp.inHitstun = false; fp.sinceHit = -1; fp.invincible = false; fp.intangible = false; fp.invincibleFrames = 0;
+    fp.intangibleFrames = 0; fp.bodyState = 0;
   }
 
   /** Places the fighter standing on a floor (used by validation traces). */
@@ -202,6 +206,13 @@ export class Engine implements EngineApi {
       } else fp.floor = null;
     }
     if (fp.floorSkip) fp.floorSkip = stage.segments.find((s) => s.group === fp.floorSkip!.group && s.kind === fp.floorSkip!.kind) ?? null;
+    // The ledge the fighter hangs from moves with its element; if the element (or its ledge) went,
+    // the ledge states see no ledge and fall (mpLib_80054ED8).
+    if (fp.ledge) {
+      const old = fp.ledge.seg, bit = fp.ledge.side === 1 ? 1 : 2;
+      const seg = stage.segments.find((s) => s.group === old.group && s.kind === old.kind && (s.ledges & bit));
+      fp.ledge = seg ? { seg, side: fp.ledge.side } : null;
+    }
     this.stage = stage;
   }
 
@@ -273,7 +284,8 @@ export class Engine implements EngineApi {
   // ---- Fighter_procAnim
   procAnim(): void {
     const fp = this.fighter;
-    // The invincibility after a strong launch runs out (x1994).
+    // Intangibility (x1990, a ledge catch) and the invincibility after a strong launch (x1994) run out.
+    if (fp.intangibleFrames) { fp.intangibleFrames -= 1; if (!fp.intangibleFrames) fp.intangible = false; }
     if (fp.invincibleFrames) { fp.invincibleFrames -= 1; if (!fp.invincibleFrames) fp.invincible = false; }
     if (!fp.inHitlag) {
       if (fp.sinceHit !== -1) fp.sinceHit++;
@@ -448,6 +460,7 @@ export class Engine implements EngineApi {
     this.lastPos.x = fp.pos.x; this.lastPos.y = fp.pos.y;
     fp.prevPos.x = fp.pos.x; fp.prevPos.y = fp.pos.y;
     if (fp.inHitlag) return;
+    if (fp.ledgeCooldown) fp.ledgeCooldown -= 1;
     this.def().phys?.(this);
     // Knockback velocity decays: in the air along its own direction (Sandbag per axis, by its own
     // deceleration); on the ground by friction, along the floor.
@@ -537,6 +550,7 @@ export class Engine implements EngineApi {
     if (!(flags & MF.SkipHit)) for (const h of fp.hitboxes) h.active = false;
     fp.reflecting = false;
     fp.shielding = false; // the shield states raise it again
+    fp.bodyState = 0; // Fighter_ChangeMotionState: the script sets it again (ftColl_8007B62C)
     if (!(flags & MF.KeepFastFall)) fp.fallFast = false;
     fp.floorSkip = null;
     fp.lstickAngle = 0;
@@ -627,6 +641,7 @@ export class Engine implements EngineApi {
       case 'iasa': fp.allowInterrupt = true; break;
       case 'reverse': fp.throwFlags |= 1 << 3; fp.mv.throwTimer = fp.script.timer; break;
       case 'flag20': fp.throwFlags |= 1 << 4; break;
+      case 'body_state': fp.bodyState = c.state; break;
       case 'airborne':
         if (c.state === 0) this.toGround();
         else if (c.state === 1) this.toAirKeepJumps(10);

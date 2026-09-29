@@ -1,6 +1,6 @@
 // Fox's side special (Illusion), ported from ft/kinds/ftFox/ftfoxspecials.c. The dash itself is the
 // animation's root motion; B during it cuts it short. The last four positions are kept for the
-// afterimages the renderer draws.
+// afterimages the renderer draws. In the air it catches ledges the way it faces.
 import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { BTN } from '../pad';
@@ -8,6 +8,7 @@ import { GA } from '../types';
 import { STATES, specials, collStop, fallSpecialEnter, landingFallSpecialEnter, waitEnter, type StateDef } from '../states';
 import { airRootMotion, fall, groundDeaccel, groundFriction, groundRootMotionSet, selfDeaccel, selfFromGround } from '../physics';
 import { airCollision, groundCollision, EdgeMode } from '../collision';
+import { ledgeCatchCheck } from '../cliff';
 
 export const FX_S = { Start: 347, Dash: 348, End: 349, AirStart: 350, AirDash: 351, AirEnd: 352 } as const;
 
@@ -76,7 +77,7 @@ function groundToAir(e: Engine, airMsid: number): void {
 
 function airToGround(e: Engine, groundMsid: number): void {
   const fp = e.fighter;
-  if (!airCollision(fp, e.stage, e.moveStart, null)) return;
+  if (!airCollision(fp, e.stage, e.moveStart, null)) { ledgeCatchCheck(e, 'facing'); return; }
   const frame = fp.animFrame;
   e.toGround();
   e.changeMotion(groundMsid, GROUND_AIR, frame, 1);
@@ -144,6 +145,7 @@ const defs: StateDef[] = [
     },
     coll(e) {
       if (airCollision(e.fighter, e.stage, e.moveStart, null)) landingFallSpecialEnter(e, false, e.data.special.illusion_landing_lag);
+      else ledgeCatchCheck(e, 'facing');
     },
   },
 ];

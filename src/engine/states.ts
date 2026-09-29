@@ -1,8 +1,8 @@
 // Movement motion states, ported from the decomp's ft/kinds/ftCommon/ftCo_*.c. Each state has the
 // game's four callbacks: anim (animation ended / timers), iasa (interrupts, run after input), phys,
 // coll. Ground attacks, shield, rolls, grabs and taunts are in groundmoves.ts; a character's specials
-// in its behavior modules. Checks for things the web version has no use for (items, ledges, other
-// fighters) are left out.
+// in its behavior modules, ledges in cliff.ts. Checks for things the web version has no use for
+// (items, other fighters) are left out.
 import type { Engine } from './engine';
 import { MF } from './engine';
 import { BTN } from './pad';
@@ -13,6 +13,7 @@ import {
 } from './physics';
 import { airCollision, groundCollision, EdgeMode, isOnPlatform } from './collision';
 import { def, MS } from './statedefs';
+import { ledgeCatchCheck, type LedgeDir } from './cliff';
 import {
   appealCheck, attack1Check, attackDashCheck, attackHi4Check, attackS4DashCheck, attacksS4ToLw3, catchCheck,
   charAppealCheck, dashCatchCheck, dashRollCheck, groundIasa, guardCheck, guardFromRunCheck, specialAirCheck,
@@ -439,8 +440,13 @@ export function collStop(e: Engine): void {
 /** ftCo_80096CC8: platforms are solid unless the stick is held down. */
 const acceptPlatform = (e: Engine) => () => e.fighter.input.ly > e.c.fall_platform_pass_threshold;
 
-export function collAirLand(e: Engine, land: (e: Engine) => void, platformCallback = true): void {
+/**
+ * Air collision that lands with `land`. States that can catch ledges (ft_800831CC, ft_800835B0,
+ * ft_80083090, ft_80082F28 ...) look for one when they didn't land.
+ */
+export function collAirLand(e: Engine, land: (e: Engine) => void, platformCallback = true, ledge: LedgeDir | null = null): void {
   if (airCollision(e.fighter, e.stage, e.moveStart, platformCallback ? acceptPlatform(e) : null)) land(e);
+  else if (ledge) ledgeCatchCheck(e, ledge);
 }
 
 // ============================================================================ states
@@ -702,7 +708,7 @@ for (const [id, name] of [[MS.JumpF, 'JumpF'], [MS.JumpB, 'JumpB']] as const) {
       if (!fp.mv.jumpX4) { fp.mv.jumpX4 = 1; return; } // no gravity on the take-off frame
       airPhysics(fp, e.a, e.c, (id) => e.playSound(id));
     },
-    coll(e) { collAirLand(e, landFromAir); },
+    coll(e) { collAirLand(e, landFromAir, true, 'facing'); },
   });
 }
 
@@ -712,7 +718,7 @@ for (const [id, name] of [[MS.JumpAerialF, 'JumpAerialF'], [MS.JumpAerialB, 'Jum
     anim(e) { if (!e.isFramesRemaining()) fallAerialEnter(e); },
     iasa(e) { airIasa(e); },
     phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
-    coll(e) { collAirLand(e, landFromAir); },
+    coll(e) { collAirLand(e, landFromAir, true, 'facing'); },
   });
 }
 
@@ -720,14 +726,14 @@ def({
   id: MS.Fall, name: 'Fall', move: 'Fall',
   iasa(e) { airIasa(e); },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
-  coll(e) { collAirLand(e, landFromAir); },
+  coll(e) { collAirLand(e, landFromAir, true, 'facing'); },
 });
 
 def({
   id: MS.FallAerial, name: 'FallAerial', move: 'FallAerial',
   iasa(e) { airIasa(e); },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
-  coll(e) { collAirLand(e, landFromAir); },
+  coll(e) { collAirLand(e, landFromAir, true, 'facing'); },
 });
 
 def({
@@ -749,7 +755,7 @@ def({
       const fp = e2.fighter;
       if (fp.mv.fsX10 || fp.selfVel.y < -e2.c.landing_speed_threshold) landingFallSpecialEnter(e2, !!fp.mv.fsAllow, fp.mv.fsLag);
       else waitEnter(e2);
-    });
+    }, true, 'facing');
   },
 });
 
@@ -864,6 +870,6 @@ def({
   anim(e) { if (!e.isFramesRemaining()) fallEnter(e); },
   iasa(e) { airIasa(e); },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
-  coll(e) { collAirLand(e, landFromAir, false); },
+  coll(e) { collAirLand(e, landFromAir, false, 'facing'); },
 });
 

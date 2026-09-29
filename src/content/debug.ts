@@ -59,7 +59,7 @@ export class DebugLayer {
       ctx.strokeStyle = s.kind === SegKind.Platform ? 'rgba(0,210,230,0.9)' : 'rgba(255,140,0,0.9)';
       if (s.kind === SegKind.Ceiling) ctx.setLineDash([4, 4]); else ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      if (s.kind === SegKind.Floor && s.ledges) {
+      if (s.ledges) {
         ctx.fillStyle = '#ff3d7f';
         if (s.ledges & 1) { ctx.beginPath(); ctx.arc(x0, y0, 4, 0, Math.PI * 2); ctx.fill(); }
         if (s.ledges & 2) { ctx.beginPath(); ctx.arc(x1, y1, 4, 0, Math.PI * 2); ctx.fill(); }

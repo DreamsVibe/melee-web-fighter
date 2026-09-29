@@ -1,13 +1,15 @@
 // Fox's up special (Firefox), ported from ft/kinds/ftFox/ftfoxspecialhi.c. Fox charges, then launches
 // in the stick's direction for a fixed number of frames with his model pointed along the flight
 // (XRotN), slows down, and ends helpless. Early in the flight he passes through platforms; after
-// that, hitting a floor steeply bounces him off it (SpecialHiBound).
+// that, hitting a floor steeply bounces him off it (SpecialHiBound). The flight and its end catch
+// ledges facing either way; the charge in the air, only the way he faces.
 import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { GA } from '../types';
 import { STATES, specials, collAirLand, collStop, fallSpecialEnter, waitEnter, type StateDef } from '../states';
 import { airPhysics, clampAirDrift, deaccelQuickAir, fall, groundDeaccel, groundFriction, selfDeaccel, selfFromGround } from '../physics';
 import { airCollision, groundCollision, EdgeMode, isOnPlatform } from '../collision';
+import { ledgeCatchCheck } from '../cliff';
 
 export const FX_HI = { Hold: 353, HoldAir: 354, Ground: 355, Air: 356, Landing: 357, Fall: 358, Bound: 359 } as const;
 
@@ -132,7 +134,7 @@ const defs: StateDef[] = [
     },
     coll(e) {
       const fp = e.fighter;
-      if (!airCollision(fp, e.stage, e.moveStart, null)) return;
+      if (!airCollision(fp, e.stage, e.moveStart, null)) { ledgeCatchCheck(e, 'facing'); return; }
       const frame = fp.animFrame;
       e.toGround();
       e.changeMotion(FX_HI.Hold, GROUND_AIR, frame, 1);
@@ -175,7 +177,7 @@ const defs: StateDef[] = [
       const fp = e.fighter, s = e.data.special;
       // Platforms don't stop him until firefox_bounce_frames in (ftFox_SpecialHi_IsBound).
       const solid = fp.mv.firefoxCollFrames >= s.firefox_bounce_frames;
-      if (!airCollision(fp, e.stage, e.moveStart, () => solid)) return;
+      if (!airCollision(fp, e.stage, e.moveStart, () => solid)) { ledgeCatchCheck(e, 'both'); return; }
       // Steep hits bounce; glancing ones slide along, re-aimed (the angle to the floor's normal).
       const v = fp.selfVel;
       const len = Math.hypot(v.x, v.y);
@@ -204,7 +206,7 @@ const defs: StateDef[] = [
         e2.toGround();
         e2.changeMotion(FX_HI.Landing, MF.UpdateCmd, 13, 1);
         e2.animStep();
-      });
+      }, true, 'both');
     },
   },
   {

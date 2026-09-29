@@ -1,19 +1,25 @@
 # Melee Web Fighter
 
-Play Fox from Super Smash Bros. Melee on any webpage. Every line of text, image and box on the page
-becomes a platform he can stand on and drop through. Play with a GameCube controller, any gamepad
-or the keyboard. Fox never changes the page: his attacks and lasers are drawn on his own overlay.
+Play Fox or Falco from Super Smash Bros. Melee on any webpage. Every line of text, image and box on
+the page becomes a platform he can stand on and drop through, and images, buttons and boxes have
+ledges at their top corners to catch and hang from. Play with a GameCube controller, any gamepad or
+the keyboard. Your fighter never changes the page: his attacks and lasers are drawn on
+his own overlay.
 
 <img width="1714" height="963" alt="meleefighterweb" src="https://github.com/user-attachments/assets/e7487902-f118-458f-b790-ec02106ef9b2" />
 
 
-**Fox has Melee's Sandbag to hit.** It stands next to him and takes hits like in the game: damage
-adds up and knocks it further, lasers add damage without making it flinch, strong hits send it
-tumbling. When it leaves the screen it comes back next to Fox at 0%. Fox's moveset and his hits on
-Sandbag are checked frame by frame against the real game.
+**Pick Fox or Falco** in the extension's settings; a page that already has a fighter on it switches
+at once. Falco runs on the same code as Fox, as he does in the game, with his own data: he's
+heavier, jumps higher, falls slower, and his lasers make opponents flinch.
 
-**Nothing from the game is included.** The extension is code only (about 250 KB). Fox's and
-Sandbag's models, animations, sounds and moves are read in your browser from **your own** Melee disc
+**There's Melee's Sandbag to hit.** It stands next to your fighter and takes hits like in the game:
+damage adds up and knocks it further, strong hits send it tumbling. When it leaves the screen it
+comes back at 0%. Fox's moveset and his hits on Sandbag are checked frame by frame against the real
+game.
+
+**Nothing from the game is included.** The extension is code only (about 250 KB). Fox's, Falco's
+and Sandbag's models, animations, sounds and moves are read in your browser from **your own** Melee disc
 image and stored locally. Nothing is uploaded anywhere.
 
 ## Quick install (about 2 minutes)
@@ -62,12 +68,19 @@ so moving from it to a newer version has to be done this way once.
 Both the keyboard and the gamepad can be remapped in the extension's settings; there you can also
 bind Y, L and the C-stick, which have no keys by default. On the keyboard a direction with A is a
 smash; hold Shift as well for a tilt. Falling off the
-screen respawns Fox at the top.
+screen respawns your fighter at the top.
 
-Fox has his whole moveset: dash dance, wavedash and waveland, short hop and fast fall, dropping
+Fox and Falco have their whole movesets: dash dance, wavedash and waveland, short hop and fast fall, dropping
 through platforms, jabs, tilts, chargeable smashes, dash attack, all five aerials with L-cancel and
-auto-cancel, Blaster, Illusion, Firefox (aimable), Reflector with multishine and waveshine, light
-and power shield, rolls, spot dodge, grabs, and both taunts.
+auto-cancel, Blaster, Illusion/Phantasm, Firefox/Fire Bird (aimable), Reflector with multishine
+and waveshine, light and power shield, rolls, spot dodge, grabs, and both taunts.
+
+**Ledges.** Fall past the top corner of an image, button or box while facing it and you catch the
+ledge, as in Melee: you're briefly intangible and get your double jump back. From the ledge, push
+toward the page or tilt up to climb, press A or B to attack, L or R to roll, jump to jump off, and
+push away or down to let go. Over 100% the getups are the slow ones, and after about 10 seconds of
+hanging you drop. Hold down to fall past a ledge without catching it. Text lines have no ledges,
+like Melee's platforms.
 
 ## Using a GameCube controller (Windows, optional)
 
@@ -112,12 +125,14 @@ The adapter helper is Windows only for now. On Mac and Linux, use a gamepad or t
 
 Right-click the toolbar icon → **Options**:
 
+* which character you play (Fox or Falco)
 * updates and the changelog
 * the adapter's status, a live input readout, which adapter port to use, and the gamepad and
   keyboard mappings
 * Sandbag: whether it appears, and whether it takes damage (off: it stays at 0% and every hit knocks it
   back as at 0%)
-* Fox's size on the page
+* your fighter's size on the page (set as Fox's height; Falco is drawn to the same scale, a little
+  taller)
 * volume
 * debug draw (collision, ECB, hitboxes, input display)
 * plugins (try **moon gravity**)
@@ -125,8 +140,8 @@ Right-click the toolbar icon → **Options**:
 
 ## Modding
 
-After an import, Fox is a folder of plain files (and Sandbag is another, `characters/sandbag/`, laid
-out the same way):
+After an import, each character is a folder of plain files (`characters/fox/`,
+`characters/falco/` and `characters/sandbag/`, all laid out the same way):
 
 ```
 characters/fox/
@@ -141,9 +156,10 @@ common/common.json    shared constants (dead zones, friction, input windows, ...
 
 **Overrides.** In the settings page, pick a file and click **Edit**, change it, and click
 **Save override**. It is saved as `overrides/<path>` on top of the imported file. A JSON override
-only needs the keys you changed, for example `{ "gravity": 0.1 }`. If Fox is on a page, he reloads
-at once with the change. Overrides survive a re-import. You can turn each one off or remove it,
-and export or import them all as a `.zip`. **Export Fox's folder** zips the whole effective folder.
+only needs the keys you changed, for example `{ "gravity": 0.1 }`. If your fighter is on a page, he
+reloads at once with the change. Overrides survive a re-import. You can turn each one off or remove
+it, and export or import them all as a `.zip`. **Export the character folders** zips the whole
+effective folder.
 
 **.move files** are Melee's subaction scripts in a readable form:
 
@@ -158,10 +174,12 @@ frame 42  iasa
 ```
 
 * `frame N` waits until animation frame N, and `wait N` waits N frames.
+* `body_state 2` makes the fighter intangible until the move ends (1 is invincible, 0 normal); the
+  ledge getups, rolls and dodges use it.
 * Commands the engine doesn't model stay as `raw 0x…` words, so every file converts back to the
   game's bytes exactly (the tests check this round trip).
-* `behavior shine` in a header attaches a character behavior module (Fox has `blaster`, `illusion`,
-  `firefox`, `shine` and `appeal`). See `src/engine/behaviors/`.
+* `behavior shine` in a header attaches a character behavior module (Fox and Falco have `blaster`,
+  `illusion`, `firefox`, `shine` and `appeal`). See `src/engine/behaviors/`.
 
 **Plugins** are TypeScript objects with optional hooks: `input`, `frameStart`, `frameEnd`,
 `stateEnter`, `stateExit`, `landing`, `hitboxContact`, `attributes`, `render` (see
@@ -196,5 +214,6 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
     `tools/datx.ts` explores the disc's archives (roots, hex, words, pointer paths). Both say how to
     run them at the top.
 * `node tools/e2e.mjs <folder>` checks the extension end to end in Chrome: it loads a copy of
-  `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag and saves screenshots.
+  `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag, shoots, switches to
+  Falco and saves screenshots (`CHARACTER=falco` starts as Falco).
 * `NOTES.md` has the research notes (formats, offsets, decomp functions) and the list of deviations.

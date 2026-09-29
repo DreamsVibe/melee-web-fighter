@@ -1,4 +1,4 @@
-// Importer preview: draws the imported Fox (T-pose, then animations) from the stored folder.
+// Importer preview: draws an imported character (T-pose, then animations) from the stored folder.
 import { listFiles } from '../shared/db';
 import { effectiveFiles, loadModel, type FileMap } from '../shared/character';
 import { FighterRenderer, type FighterModel } from '../render/fighter';
@@ -12,10 +12,10 @@ export interface Preview {
   setPoser(fn: ((frame: number, local: Float32Array) => void) | null): void;
 }
 
-export async function startPreview(canvas: HTMLCanvasElement): Promise<Preview> {
+export async function startPreview(canvas: HTMLCanvasElement, dir = 'characters/fox/'): Promise<Preview> {
   const all: FileMap = new Map((await listFiles()).map((f) => [f.path, f.data]));
   const files = effectiveFiles(all);
-  const { model, info } = loadModel(files, 'characters/fox/');
+  const { model, info } = loadModel(files, dir);
   const gl = canvas.getContext('webgl2', { antialias: true, alpha: false })!;
   if (!gl) throw new Error('WebGL2 is not available in this browser.');
   const renderer = new FighterRenderer(gl, model);

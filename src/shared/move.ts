@@ -26,6 +26,8 @@ export type Cmd =
   | { op: 'var'; idx: number; value: number }
   | { op: 'iasa' } | { op: 'reverse' } | { op: 'flag20'; value: number }
   | { op: 'airborne'; state: number }
+  /** Body collision state (x1988): 0 normal, 1 invincible, 2 intangible. */
+  | { op: 'body_state'; state: number }
   | { op: 'jab_combo'; disabled: number } | { op: 'rapid_jab'; state: number }
   | { op: 'smash_charge'; frames: number; rate: number; w1: number }
   | { op: 'label'; name: string }
@@ -92,6 +94,7 @@ export function decodeCommand(words: number[], labelOf: (target: number) => stri
     case 20: return F(w0, 6, 26) === 0 ? { op: 'reverse' } : { op: 'flag20', value: F(w0, 6, 26) };
     case 23: if (w0 === 0x5c000000) return { op: 'iasa' }; break;
     case 25: return { op: 'airborne', state: F(w0, 6, 26) };
+    case 26: return { op: 'body_state', state: F(w0, 6, 26) };
     case 29: return { op: 'jab_combo', disabled: F(w0, 6, 26) };
     case 30: return { op: 'rapid_jab', state: F(w0, 6, 26) };
     case 56: if (words.length === 2) return { op: 'smash_charge', frames: F(w0, 6, 10), rate: F(w0, 16, 16), w1: words[1] }; break;
@@ -128,6 +131,7 @@ export function encodeCommand(c: Cmd, target: (label: string) => number): number
     case 'flag20': return [word(put(20, 0, 6), put(c.value, 6, 26))];
     case 'iasa': return [0x5c000000];
     case 'airborne': return [word(put(25, 0, 6), put(c.state, 6, 26))];
+    case 'body_state': return [word(put(26, 0, 6), put(c.state, 6, 26))];
     case 'jab_combo': return [word(put(29, 0, 6), put(c.disabled, 6, 26))];
     case 'rapid_jab': return [word(put(30, 0, 6), put(c.state, 6, 26))];
     case 'smash_charge': return [word(put(56, 0, 6), put(c.frames, 6, 10), put(c.rate, 16, 16)), c.w1 >>> 0];
@@ -140,7 +144,7 @@ export function encodeCommand(c: Cmd, target: (label: string) => number): number
 /** What the commands the engine leaves raw do (comment only). */
 const RAW_NAMES: Record<number, string> = {
   9: 'background flash', 10: 'graphic effect', 14: 'hitbox flags', 18: 'smash charge sound', 21: 'throw flag',
-  22: 'throw flag', 24: 'throw flag', 26: 'body collision state', 27: 'hurtbox state', 28: 'hurtbox bone state',
+  22: 'throw flag', 24: 'throw flag', 27: 'hurtbox state', 28: 'hurtbox bone state',
   31: 'model part visibility', 34: 'throw hitbox', 36: 'item visibility', 37: 'fighter visibility', 38: 'random sound',
   40: 'eye texture', 43: 'rumble', 52: 'landing effect',
 };
@@ -180,6 +184,7 @@ export function formatCommand(c: Cmd, soundName: (id: number) => string): string
       return `var ${c.idx} ${c.value}`;
     case 'flag20': return `flag20 ${c.value}`;
     case 'airborne': return `airborne ${c.state}`;
+    case 'body_state': return `body_state ${c.state}`;
     case 'jab_combo': return c.disabled ? `jab_combo ${c.disabled}` : 'jab_combo';
     case 'rapid_jab': return `rapid_jab ${c.state ? 'on' : 'off'}` + (c.state > 1 ? ` ${c.state}` : '');
     case 'smash_charge': return `smash_charge frames=${c.frames} rate=${c.rate}` + (c.w1 ? ` extra=${hex(c.w1)}` : '');
@@ -255,6 +260,7 @@ function parseCommand(tokens: string[], soundId: (name: string) => number, line:
     case 'var': return { op, idx: n(0), value: n(1) };
     case 'flag20': return { op, value: n(0) };
     case 'airborne': return { op, state: n(0) };
+    case 'body_state': return { op, state: n(0) };
     case 'jab_combo': return { op, disabled: args[0] === undefined ? 0 : n(0) };
     case 'rapid_jab': return { op, state: args[1] !== undefined ? n(1) : args[0] === 'on' ? 1 : 0 };
     case 'smash_charge': { const o = kv(); return { op, frames: o.frames ?? 60, rate: o.rate ?? 0, w1: o.extra ?? 0 }; }

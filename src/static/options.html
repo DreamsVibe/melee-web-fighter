@@ -3,7 +3,17 @@
 <title>Melee Web Fighter — Settings</title><link rel="stylesheet" href="ui.css"></head>
 <body><main>
 <h1>Melee Web Fighter</h1>
-<p class="muted">Click the toolbar icon or press <b>Alt+M</b> on any page to drop Fox onto it. <span id="importState"></span></p>
+<p class="muted">Click the toolbar icon or press <b>Alt+M</b> on any page to drop your fighter onto it. <span id="importState"></span></p>
+
+<div class="card">
+  <h2 style="margin-top:0">Character</h2>
+  <div class="row">
+    <label>Play as <select id="character"></select></label>
+    <span id="characterMsg" class="muted"></span>
+  </div>
+  <p class="muted">Falco has his own weight, jumps, falling speed and moves, and his lasers make Sandbag flinch.
+  A page that already has a fighter on it switches at once.</p>
+</div>
 
 <div class="card">
   <h2 style="margin-top:0">Updates</h2>
@@ -16,8 +26,8 @@
     <div class="row"><button id="updateNow" class="primary">Update now</button>
       <span class="muted">or <a id="updateLink" target="_blank" rel="noopener">download it from GitHub</a></span></div>
     <p class="muted">The first time, Chrome asks you to pick your Melee Web Fighter folder (the one you unzipped, with
-    <b>extension</b> and <b>helper</b> inside) and to let the extension edit it. Your imported Fox, settings and overrides
-    are kept. Pages that already have Fox on them need a reload afterwards.</p>
+    <b>extension</b> and <b>helper</b> inside) and to let the extension edit it. Your imported characters, settings and overrides
+    are kept. Pages that already have a fighter on them need a reload afterwards.</p>
   </div>
   <button id="forgetFolder" hidden>Use a different folder for updates</button>
   <details id="changelog" style="margin-top:10px"><summary>Changelog</summary><div id="changelogBody" class="muted">Loading…</div></details>
@@ -50,23 +60,24 @@
 <div class="card">
   <h2 style="margin-top:0">Display and sound</h2>
   <div class="row">
-    <label>Fox height on the page <input id="height" type="number" min="30" max="400" step="5"> px</label>
+    <label>Fighter height on the page <input id="height" type="number" min="30" max="400" step="5"> px</label>
     <label>Volume <input id="volume" type="range" min="0" max="1" step="0.05"></label>
     <label><input id="debug" type="checkbox"> Debug draw (collision, ECB, hitboxes)</label>
   </div>
   <p class="muted">The height sets the engine's scale: <code>px_per_unit</code> = height ÷ Fox's standing height in
-  Melee units (measured from his model; the debug overlay shows the result). Speeds and jump heights scale with it.</p>
+  Melee units (measured from his model; the debug overlay shows the result). Speeds and jump heights scale with it.
+  Falco is drawn to the same scale, so he stands a little taller than Fox, as in the game.</p>
 </div>
 
 <div class="card">
   <h2 style="margin-top:0">Sandbag</h2>
   <div class="row">
-    <label><input id="sandbag" type="checkbox"> Sandbag appears next to Fox</label>
+    <label><input id="sandbag" type="checkbox"> Sandbag appears next to your fighter</label>
     <label><input id="sandbagDamage" type="checkbox"> Sandbag takes damage</label>
   </div>
-  <p class="muted">Hit it like in Melee: damage adds up and knocks it further, lasers add damage without making it
-  flinch. With damage off it stays at 0% and every hit knocks it back as at 0%. When it leaves the screen it
-  comes back next to Fox at 0%.</p>
+  <p class="muted">Hit it like in Melee: damage adds up and knocks it further. Fox's lasers add damage without making
+  it flinch; Falco's make it flinch. With damage off it stays at 0% and every hit knocks it back as at 0%. When it
+  leaves the screen it comes back at 0%.</p>
 </div>
 
 <div class="card">
@@ -76,7 +87,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">Your changes (overrides)</h2>
-  <p class="muted">Overrides sit on top of the imported data, reload live while Fox is on a page, and survive re-imports.
+  <p class="muted">Overrides sit on top of the imported data, reload live while a fighter is on a page, and survive re-imports.
   A JSON override holds only the keys you changed.</p>
   <table id="overrides"></table>
   <div class="row" style="margin-top:10px">
@@ -84,7 +95,7 @@
     <button id="edit">Edit</button>
     <button id="exportOverrides">Export overrides (.zip)</button>
     <label class="row"><span>Import overrides</span><input id="importOverrides" type="file" accept=".zip"></label>
-    <button id="exportFolder">Export Fox's folder (.zip)</button>
+    <button id="exportFolder">Export the character folders (.zip)</button>
   </div>
   <div id="editor" hidden style="margin-top:12px">
     <div class="row"><b id="editPath"></b><span id="editMsg" class="muted"></span></div>

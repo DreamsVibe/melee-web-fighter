@@ -36,7 +36,7 @@ export interface CharacterSpec {
   behaviors: Array<[RegExp, string]>;
   /** Its own sound bank (sound ids bank*10000 + n), if it has one. */
   bank?: { file: string; index: number };
-  /** Fox's blaster shot (article 0). */
+  /** Fox's and Falco's blaster shot (article 0). */
   laser?: boolean;
   /** Joint constraints the character's code attaches to its model (HSD RObj). */
   constraints?: ConstraintDef[];
@@ -52,6 +52,15 @@ export const FOX: CharacterSpec = {
   id: 'fox', name: 'Fox', code: 'Fx', kind: 1, submotions: FOX_SUBMOTIONS, specialFields: FOX_SPECIAL_FIELDS,
   behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/fox.ssm', index: 11 }, laser: true,
 };
+/**
+ * Falco runs on Fox's code: ftFc_Init_MotionStateTable points at the ftFx functions, with the same
+ * action names and the same special-attribute layout (ftFox_DatAttrs). His values, animations, laser
+ * article and sound bank are his own.
+ */
+export const FALCO: CharacterSpec = {
+  id: 'falco', name: 'Falco', code: 'Fc', kind: 0x16, submotions: FOX_SUBMOTIONS, specialFields: FOX_SPECIAL_FIELDS,
+  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/falco.ssm', index: 10 }, laser: true,
+};
 export const SANDBAG: CharacterSpec = {
   id: 'sandbag', name: 'Sandbag', code: 'Sb', kind: 0x20, submotions: SANDBAG_SUBMOTIONS,
   specialFields: SANDBAG_SPECIAL_FIELDS, behaviors: [],
@@ -63,7 +72,9 @@ export const SANDBAG: CharacterSpec = {
     { joint: 7, aim: 37, rotXMin: -Math.PI / 2, rotXMax: -Math.PI / 2 },
   ],
 };
-export const CHARACTERS = [FOX, SANDBAG];
+export const CHARACTERS = [FOX, FALCO, SANDBAG];
+/** The characters a player can pick. */
+export const PLAYABLE = [FOX, FALCO];
 export const charDir = (c: CharacterSpec) => `characters/${c.id}/`;
 export const CHAR_DIR = charDir(FOX);
 
@@ -187,8 +198,11 @@ export async function buildFolder(disc: Disc, progress: Progress, log: Log): Pro
       costumes: ['default'],
       sounds: sounds.ftSfx.get(spec.id) ?? {},
       moves: moves.map((m) => m.name),
-      // ECB bones and side offset (ftData +0x44), TransN joint (root motion).
-      ecb: { bones: [0, 1, 2, 3, 4, 5].map((i) => archive.s16(x44 + 2 * i)), sideOffset: archive.f32(x44 + 12) },
+      // ECB bones, side offset and ledge-grab box (ftData +0x44: x, y, height), TransN joint (root motion).
+      ecb: {
+        bones: [0, 1, 2, 3, 4, 5].map((i) => archive.s16(x44 + 2 * i)), sideOffset: archive.f32(x44 + 12),
+        ledgeSnap: [0x10, 0x14, 0x18].map((o) => tidy(archive.f32(x44 + o))),
+      },
       transN: extras.parts[1],
       // Fighter_Part -> joint index (TopN, TransN, XRotN, ... TransN2).
       parts: extras.parts,

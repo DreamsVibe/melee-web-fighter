@@ -1,7 +1,7 @@
 // The page as a stage: visible text lines, media, controls and boxes with a visible background or
 // border each become a pass-through platform along their top edge, like Battlefield's side platforms.
 // Nothing is solid: no walls, ceilings or floors that can't be dropped through, so a fighter can
-// never get boxed in by page layout. Only the viewport plus half a screen of margin (the blast zone)
+// never get boxed in by page layout. Media, controls and boxes have ledges at their top corners. Only the viewport plus half a screen of margin (the blast zone)
 // is scanned, a few milliseconds per frame.
 // Rebuilt on scroll (throttled), resize and DOM changes (debounced); fixed/sticky elements are
 // re-positioned every frame so they move with the viewport.
@@ -259,7 +259,11 @@ export class PageStage {
       const d = Math.abs((r.t + r.b) / 2 - cy) + Math.abs((r.l + r.r) / 2 - cx) * 0.25;
       // float32 like the game, so a fighter integrated in float32 lines up exactly with a floor.
       const x0 = Math.fround(v.toUnitsX(r.l)), x1 = Math.fround(v.toUnitsX(r.r)), y0 = Math.fround(v.toUnitsY(r.t));
-      segs.push({ kind: SegKind.Platform, x0, y0, x1, y1: y0, group: b.group, ledges: 0, d });
+      // Solid blocks (media, controls, boxes) have a ledge at both top corners, like a stage's main
+      // floor; text lines don't, like Melee's platforms. Fixed ones don't either: their corners sit at
+      // the edge of the screen.
+      const ledges = b.solid && !b.fixed ? 3 : 0;
+      segs.push({ kind: SegKind.Platform, x0, y0, x1, y1: y0, group: b.group, ledges, d });
     }
     if (segs.length > this.opts.maxSegments) {
       segs.sort((a, b) => a.d - b.d);

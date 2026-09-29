@@ -8,24 +8,39 @@ export interface SoundStepDef { delayMs: number; sample: string; volume: number;
 export interface SoundDef { name: string; steps: SoundStepDef[] }
 
 export class AudioPlayer {
-  readonly ctx: AudioContext;
-  private master: GainNode;
+  private ctx: AudioContext | null = null;
+  private master: GainNode | null = null;
+  private volume: number;
   private defs = new Map<number, SoundDef>();
   private byName = new Map<string, number>();
   private buffers = new Map<string, AudioBuffer>();
   private files: FileMap = new Map();
-  private unlock = () => { void this.ctx.resume(); };
+  private unlock = () => { void this.context()?.resume(); };
 
   constructor(volume = 0.7) {
-    this.ctx = new AudioContext({ latencyHint: 'interactive' });
-    this.master = this.ctx.createGain();
-    this.master.gain.value = volume;
-    this.master.connect(this.ctx.destination);
-    // Autoplay policy: a page that has not been interacted with starts suspended.
+    this.volume = volume;
     for (const t of ['keydown', 'pointerdown', 'touchstart']) window.addEventListener(t, this.unlock, { capture: true, passive: true });
   }
 
-  setVolume(v: number): void { this.master.gain.value = Math.max(0, Math.min(1, v)); }
+  /**
+   * The audio context, made once the page has had a key press, click or touch: Chrome's autoplay
+   * policy warns about (and suspends) one made before that. The toolbar button and Alt+M don't count
+   * as the page's, so sounds before the first key press are skipped.
+   */
+  private context(): AudioContext | null {
+    if (this.ctx) return this.ctx;
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return null;
+    this.ctx = new AudioContext({ latencyHint: 'interactive' });
+    this.master = this.ctx.createGain();
+    this.master.gain.value = this.volume;
+    this.master.connect(this.ctx.destination);
+    return this.ctx;
+  }
+
+  setVolume(v: number): void {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.master) this.master.gain.value = this.volume;
+  }
 
   /** Loads every sounds/sounds.json in the folder (character and common). */
   load(files: FileMap): void {
@@ -46,7 +61,7 @@ export class AudioPlayer {
   list(): Array<[number, SoundDef]> { return [...this.defs].sort((a, b) => a[0] - b[0]); }
   idOf(name: string): number | undefined { return this.byName.get(name); }
 
-  private buffer(path: string): AudioBuffer | null {
+  private buffer(ctx: AudioContext, path: string): AudioBuffer | null {
     const cached = this.buffers.get(path);
     if (cached) return cached;
     const data = this.files.get(path);
@@ -54,7 +69,7 @@ export class AudioPlayer {
     const snd = readSnd(bytes(data)!);
     const chans = snd.channels.map(decodeChannel);
     const len = Math.max(1, ...chans.map((c) => c.length));
-    const buf = this.ctx.createBuffer(chans.length, len, snd.sampleRate);
+    const buf = ctx.createBuffer(chans.length, len, snd.sampleRate);
     chans.forEach((c, i) => buf.copyToChannel(c as Float32Array<ArrayBuffer>, i));
     this.buffers.set(path, buf);
     return buf;
@@ -63,18 +78,19 @@ export class AudioPlayer {
   /** Plays a Melee sound id with the game's volume (0-127) and pan (0-127, 64 = centre). */
   play(id: number, volume = 127, pan = 64): void {
     const def = this.defs.get(id);
-    if (!def || this.ctx.state === 'closed') return;
-    const now = this.ctx.currentTime;
+    const ctx = def ? this.context() : null;
+    if (!def || !ctx || !this.master || ctx.state === 'closed') return;
+    const now = ctx.currentTime;
     const callGain = Math.min(255, volume * 2) / 255;
     for (const s of def.steps) {
-      const buf = this.buffer(s.sample);
+      const buf = this.buffer(ctx, s.sample);
       if (!buf) continue;
-      const src = this.ctx.createBufferSource();
+      const src = ctx.createBufferSource();
       src.buffer = buf;
       src.playbackRate.value = Math.pow(2, s.pitchCents / 1200);
-      const g = this.ctx.createGain();
+      const g = ctx.createGain();
       g.gain.value = (s.volume / 255) * callGain;
-      const p = this.ctx.createStereoPanner();
+      const p = ctx.createStereoPanner();
       p.pan.value = Math.max(-1, Math.min(1, (pan - 64) / 64 * 0.6));
       src.connect(g).connect(p).connect(this.master);
       src.start(now + s.delayMs / 1000);
@@ -83,6 +99,6 @@ export class AudioPlayer {
 
   destroy(): void {
     for (const t of ['keydown', 'pointerdown', 'touchstart']) window.removeEventListener(t, this.unlock, { capture: true });
-    void this.ctx.close();
+    void this.ctx?.close();
   }
 }
