@@ -65,6 +65,7 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
     modelScale: Math.fround(info.modelScale),
     ecbBones: info.ecb?.bones ?? [41, 55, 25, 13, 7, 4],
     ecbSideOffset: info.ecb?.sideOffset ?? 0,
+    ledgeSnap: info.ecb?.ledgeSnap ?? [0, 0, 0],
     transN: info.transN ?? 1,
     parts: info.parts ?? [],
     shieldJoint: info.shieldJoint ?? 0,

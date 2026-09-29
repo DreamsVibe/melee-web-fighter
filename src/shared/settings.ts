@@ -15,16 +15,22 @@ export const KEY_ACTIONS = [
 export type KeyAction = typeof KEY_ACTIONS[number];
 export type KeyboardMapping = Record<KeyAction, string[]>;
 
+/** The characters a player can pick (their folders are characters/<id>/). */
+export const CHARACTERS = [{ id: 'fox', name: 'Fox' }, { id: 'falco', name: 'Falco' }] as const;
+export type CharacterId = typeof CHARACTERS[number]['id'];
+
 export interface Settings {
+  /** Who you play. */
+  character: CharacterId;
   adapterPort: number;           // 1-4
-  fighterHeightPx: number;       // Fox's standing height on the page, sets px_per_unit
+  fighterHeightPx: number;       // Fox's standing height on the page, sets px_per_unit (Falco is drawn to the same scale)
   volume: number;                // 0-1
   debug: boolean;                // collision/hitbox draw (also F9)
   disabledOverrides: string[];   // override paths switched off
   plugins: Record<string, boolean>;
   gamepad: GamepadMapping;
   keyboard: KeyboardMapping;
-  /** Sandbag stands next to Fox to hit; with sandbagDamage off it stays at 0%. */
+  /** Sandbag stands next to the player to hit; with sandbagDamage off it stays at 0%. */
   sandbag: boolean;
   sandbagDamage: boolean;
   minSolidPx: number;
@@ -47,6 +53,7 @@ export const DEFAULT_KEYBOARD: KeyboardMapping = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
+  character: 'fox',
   adapterPort: 1,
   fighterHeightPx: 90,
   volume: 0.7,
@@ -69,6 +76,7 @@ export function withDefaults(raw: Record<string, unknown>): Settings {
   s.keyboard = { ...DEFAULT_KEYBOARD };
   for (const a of KEY_ACTIONS) if (Array.isArray(kb[a])) s.keyboard[a] = (kb[a] as unknown[]).filter((k): k is string => typeof k === 'string');
   s.plugins = { ...DEFAULT_SETTINGS.plugins, ...(raw.plugins as object ?? {}) };
+  if (!CHARACTERS.some((c) => c.id === s.character)) s.character = DEFAULT_SETTINGS.character;
   return s;
 }
 

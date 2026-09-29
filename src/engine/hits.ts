@@ -46,6 +46,9 @@ export function moveIdOf(msid: number): number {
   if (msid >= 347 && msid <= 352) return 19;
   if (msid >= 353 && msid <= 359) return 20;
   if (msid >= 360 && msid <= 369) return 21;
+  // Ledge attacks (ftCo_MS_CliffAttackSlow / Quick).
+  if (msid === 256) return 61;
+  if (msid === 257) return 62;
   return 1;
 }
 
@@ -184,6 +187,13 @@ function hurtCapsule(e: Engine, hb: HurtboxDef, a: number[], b: number[], inv: n
 }
 
 // ============================================================================ attack collision (priority 13)
+/**
+ * The fighter's hurt state (ftColl_8007B868): the larger of the script's body state (x1988) and the
+ * timed one (x198C). Intangible: hits pass through; invincible: they connect but do nothing.
+ */
+const intangible = (fp: Fighter) => fp.intangible || fp.bodyState === 2;
+const invincible = (fp: Fighter) => fp.invincible || fp.bodyState === 1;
+
 /** Whether a hitbox can hit this fighter now (state, element, air/ground, not already hit). */
 function canHit(h: HitboxState, victim: Engine): boolean {
   if (!h.active || !h.fighters || h.element === ELEMENT_CATCH || h.victims.has(victim)) return false;
@@ -198,7 +208,7 @@ function canHit(h: HitboxState, victim: Engine): boolean {
 export function attackColl(victim: Engine, all: Engine[]): void {
   victim.fighter.tipLog.length = 0;
   const hb = victim.data.hurtboxes;
-  if (!hb.length || victim.fighter.intangible) return;
+  if (!hb.length || intangible(victim.fighter)) return;
   const a = [0, 0, 0], b = [0, 0, 0], inv = new Array<number>(9);
   const hit = (h: HitboxState): HurtboxDef | null => {
     for (const hurt of hb) {
@@ -214,7 +224,7 @@ export function attackColl(victim: Engine, all: Engine[]): void {
       const hurt = hit(h);
       if (hurt && registerHit(attacker, h, victim, hurt, a, b, attacker.fighter.pos.x, 0, attacker.fighter.hitboxes, attacker.fighter.attackId, attacker.fighter.attackInstance, false)) {
         // ftColl_80078C70: the attacker's hit sound (lbColl_80005BB0), or a dull one on an invincible fighter.
-        const sound = victim.fighter.invincible ? [141, 142, 143][h.sfxLevel] ?? 141 : HIT_SOUNDS[h.sfxKind * 3 + h.sfxLevel];
+        const sound = invincible(victim.fighter) ? [141, 142, 143][h.sfxLevel] ?? 141 : HIT_SOUNDS[h.sfxKind * 3 + h.sfxLevel];
         if (sound !== undefined && sound < 10000) attacker.playSound(sound);
       }
     }
@@ -226,7 +236,7 @@ export function attackColl(victim: Engine, all: Engine[]): void {
       for (const h of p.hitboxes) {
         if (!canHit(h, victim)) continue;
         const hurt = hit(h);
-        if (hurt && registerHit(attacker, h, victim, hurt, a, b, p.x, p.vx, p.hitboxes, p.attackId, p.attackInstance, true) && !victim.fighter.invincible) p.hit = true;
+        if (hurt && registerHit(attacker, h, victim, hurt, a, b, p.x, p.vx, p.hitboxes, p.attackId, p.attackInstance, true) && !invincible(victim.fighter)) p.hit = true;
       }
     }
     // The side special's afterimage: an item that doesn't move (the hit pushes away from where it
@@ -273,7 +283,7 @@ function registerHit(
       count = h.count >>> 1 || (h.count ? 1 : 0);
     }
     for (const o of group) if (o.active && o.group === h.group) o.tipVictims.add(victim);
-    if (!vf.invincible) {
+    if (!invincible(vf)) {
       if (Math.trunc(half) > vf.phantomHitlag) vf.phantomHitlag = Math.trunc(half);
       vf.tipLog.push(entry(half, count));
     }
@@ -283,7 +293,7 @@ function registerHit(
   for (const o of group) if (o.active && o.group === h.group) o.victims.add(victim);
   const intDmg = dmg ? Math.trunc(dmg) || 1 : 0;
   if (!item && intDmg > af.dealtDamage) af.dealtDamage = intDmg;
-  if (vf.invincible) return true;
+  if (invincible(vf)) return true;
   vf.percentTemp = f(vf.percentTemp + dmg);
   if (intDmg > vf.damageApplied) vf.damageApplied = intDmg;
   vf.damageLog.push(entry(dmg, h.count));

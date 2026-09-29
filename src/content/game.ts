@@ -1,5 +1,6 @@
-// Wires the parts together on the page: bridge (data + adapter), input, stage, engine (Fox, and
-// Sandbag when it's on), renderers and audio. Owns the overlay and tears everything down on destroy().
+// Wires the parts together on the page: bridge (data + adapter), input, stage, engine (the player's
+// character, Fox or Falco, and Sandbag when it's on), renderers and audio. Owns the overlay and tears
+// everything down on destroy().
 import { Overlay } from './overlay';
 import { BridgeClient } from './bridge-client';
 import { View } from './view';
@@ -11,7 +12,7 @@ import { DebugLayer } from './debug';
 import { EffectsLayer } from './effects';
 import { CanvasQuad } from '../render/quad';
 import { emptyPad } from '../engine/pad';
-import { withDefaults, type Settings } from '../shared/settings';
+import { CHARACTERS, withDefaults, type Settings } from '../shared/settings';
 import { PageStage } from './stage';
 import { Engine } from '../engine/engine';
 import { World } from '../engine/world';
@@ -22,8 +23,9 @@ import { pluginsFor } from '../plugins';
 import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
 import { FORMAT_VERSION } from '../shared/db';
 import type { Fighter } from '../engine/types';
+import { restPose, worldMatrices } from '../render/pose';
 
-const CHAR = 'characters/fox/';
+const FOX = 'characters/fox/';
 const SANDBAG = 'characters/sandbag/';
 /** How far from Fox (Melee units) Sandbag appears, and how far past the screen edge it may go. */
 const SANDBAG_GAP = 22;
@@ -36,6 +38,12 @@ const SPAWN_HEADROOM = 22;
 const SPAWN_SIDE = 8;
 /** Sandbag comes back at least this far from Fox. */
 const RESPAWN_AWAY = 40;
+
+/** Something the user has to do first (import the disc, or import it again): shown, not logged as an error. */
+export class SetupError extends Error {}
+
+/** Whether this script can still reach the extension (a reload or update cuts off the old copy). */
+const extensionAlive = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
 
 export class Game {
   readonly overlay = new Overlay();
@@ -61,7 +69,7 @@ export class Game {
   private pad = emptyPad();
   private proj = new Float32Array(16);
   private place = new Float32Array(16);
-  /** Fox's standing height in Melee units (measured from his idle pose at load). */
+  /** Fox's standing height in Melee units (measured from his model at load); sets the page's scale. */
   private fighterHeight = 14;
   private stepMs = 0;
   /** Worst per-frame stage update since the last stats line (dev builds log it). */
@@ -70,6 +78,8 @@ export class Game {
   private adapterLink: chrome.runtime.Port | null = null;
   private adapterLatency = 0;
   private destroyed = false;
+  /** Called when the extension went away under this copy and it removed itself from the page. */
+  onOrphaned: (() => void) | null = null;
 
   constructor() {
     this.bridge = new BridgeClient({
@@ -82,18 +92,12 @@ export class Game {
     const t0 = performance.now();
     await this.bridge.load();
     if (DEV) console.log('[mwf] folder', this.bridge.files.size, 'files in', (performance.now() - t0).toFixed(0), 'ms');
-    if (!this.bridge.files.has(CHAR + 'character.json')) {
-      throw new Error('Fox is not imported yet. Open the extension options → Import, and pick your Melee disc.');
-    }
-    const version = JSON.parse(text(this.bridge.files.get(CHAR + 'character.json')) ?? '{}').formatVersion ?? 0;
-    if (version < FORMAT_VERSION) {
-      throw new Error("Fox's data is from an older version of the extension (without Sandbag and hits). Open the extension options → Import, and import your Melee disc again.");
-    }
+    this.settings = withDefaults(this.bridge.settings);
+    this.checkImported();
     const gl = this.overlay.canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: false, antialias: true });
     if (!gl) throw new Error('WebGL2 is not available on this page.');
     this.gl = gl;
     this.quad = new CanvasQuad(gl);
-    this.settings = withDefaults(this.bridge.settings);
     this.audio = new AudioPlayer(this.settings.volume);
     this.loadAll();
     this.stage = new PageStage(this.view, { minSolidPx: this.settings.minSolidPx, minSegmentPx: this.settings.minSegmentPx, maxSegments: this.settings.maxSegments });
@@ -114,6 +118,23 @@ export class Game {
     await this.overlay.start();
   }
 
+  /** The player's character folder. */
+  private get charDir(): string { return `characters/${this.settings.character}/`; }
+
+  /** Throws when the chosen character isn't imported, or was imported by an older version. */
+  private checkImported(): void {
+    const name = CHARACTERS.find((c) => c.id === this.settings.character)?.name ?? 'Fox';
+    const info = this.bridge.files.get(this.charDir + 'character.json');
+    if (!info) {
+      throw new SetupError(this.bridge.files.has(FOX + 'character.json')
+        ? `${name} isn't imported yet: this version adds him. Open the extension options → Import, and import your Melee disc again.`
+        : `${name} is not imported yet. Open the extension options → Import, and pick your Melee disc.`);
+    }
+    if ((JSON.parse(text(info) ?? '{}').formatVersion ?? 0) < FORMAT_VERSION) {
+      throw new SetupError(`${name}'s data is from an older version of the extension. Open the extension options → Import, and import your Melee disc again.`);
+    }
+  }
+
   /** The character folder as the engine sees it: imports with enabled overrides merged on top. */
   private folder() {
     return effectiveFiles(this.bridge.files, new Set(this.settings.disabledOverrides));
@@ -121,17 +142,28 @@ export class Game {
 
   private loadAll(): void {
     const files = this.folder();
-    const { model, info } = loadModel(files, CHAR);
+    const dir = this.charDir;
+    const { model, info } = loadModel(files, dir);
     this.model = model;
     this.info = info;
     this.renderer = new FighterRenderer(this.gl!, model);
-    const data = loadCharacter(files, CHAR);
-    if (this.engine) this.engine.setData(data);
-    else this.world.add(this.engine = new Engine(data));
+    const data = loadCharacter(files, dir);
+    if (this.engine && this.engine.data.id === data.id) this.engine.setData(data);
+    else {
+      // Another character (picked in the settings) takes the old one's place: first in the world, so
+      // the pad drives it, and where the old one stood.
+      const old = this.engine;
+      if (old) this.world.remove(old);
+      this.engine = this.world.add(new Engine(data), 0);
+      if (this.stage) this.engine.setStage(this.stage.data);
+      if (old && this.spawned) this.engine.spawn(old.fighter.pos.x, old.fighter.pos.y + 0.5, old.fighter.facing);
+    }
     this.engine.plugins = pluginsFor(this.settings);
     this.loadSandbag(files);
     this.audio!.load(files);
-    this.fighterHeight = this.measureHeight() || 14;
+    // The page's scale always comes from Fox, so Falco stands taller, as he does next to Fox in the game.
+    const fox = dir === FOX || !files.has(FOX + 'character.json') ? { model, info } : loadModel(files, FOX);
+    this.fighterHeight = measureHeight(fox.model, fox.info.modelScale);
   }
 
   /** Sandbag's data and model (imported with Fox since format 3); in the world while the setting is on. */
@@ -204,10 +236,10 @@ export class Game {
     return this.visibleSpot(preferX) ?? [mid, t - 4];
   }
 
-  /** Live reload after an override or setting changed. */
+  /** Live reload after an override or setting changed (or another character was picked). */
   private reload(): void {
     if (!this.gl || !this.engine) return;
-    try { this.settings = withDefaults(this.bridge.settings); this.loadAll(); this.applySettings(); } catch (e) { this.showError(`Reload failed: ${(e as Error).message}`); }
+    try { this.settings = withDefaults(this.bridge.settings); this.checkImported(); this.loadAll(); this.applySettings(); } catch (e) { this.showError(`Reload failed: ${(e as Error).message}`); }
   }
 
   private applySettings(): void {
@@ -223,9 +255,15 @@ export class Game {
     if (this.stage) { this.stage.opts = { minSolidPx: s.minSolidPx, minSegmentPx: s.minSegmentPx, maxSegments: s.maxSegments }; this.stage.invalidate(0); }
   }
 
-  /** Subscribes to the adapter helper's reports; reconnects if the service worker restarts. */
+  /**
+   * Subscribes to the adapter helper's reports; reconnects if the service worker restarts. If the
+   * extension itself went away (reloaded or updated), this copy can't reach it any more: it takes
+   * the fighter off the page, and the next toggle brings in the new version.
+   */
   private connectAdapter(): void {
-    const port = chrome.runtime.connect({ name: ADAPTER_PORT });
+    if (!extensionAlive()) { this.orphaned(); return; }
+    let port: chrome.runtime.Port;
+    try { port = chrome.runtime.connect({ name: ADAPTER_PORT }); } catch { this.orphaned(); return; }
     this.adapterLink = port;
     port.onMessage.addListener((m: AdapterMessage) => {
       if (m.type === 'report') {
@@ -236,8 +274,15 @@ export class Game {
     port.onDisconnect.addListener(() => {
       if (this.adapterLink !== port || this.destroyed) return;
       this.adapterLink = null;
+      if (!extensionAlive()) { this.orphaned(); return; }
       setTimeout(() => { if (!this.destroyed) this.connectAdapter(); }, 1000);
     });
+  }
+
+  private orphaned(): void {
+    if (this.destroyed) return;
+    this.destroy();
+    this.onOrphaned?.();
   }
 
   /** One engine step (exactly 1/60 s). */
@@ -271,32 +316,6 @@ export class Game {
         else if (DEV && ev.type === 'state') console.log(`[mwf] ${f.data.id} ${f.frame} ${ev.from} -> ${ev.to} (frame ${f.fighter.animFrame}, vy ${f.fighter.selfVel.y.toFixed(2)})`);
       }
     }
-  }
-
-  /** Height of the current pose from the skinned mesh, in Melee units (the idle pose at load). */
-  private measureHeight(): number {
-    const e = this.engine!, m = this.model!;
-    const fp = e.fighter;
-    e.updatePose();
-    const world = fp.world, J = m.joints.length, v = m.mesh.vertices;
-    let top = -Infinity;
-    for (let i = 0; i < v.length / 8; i++) {
-      let y = 0;
-      for (let k = 0; k < 4; k++) {
-        const w = m.mesh.weights[i * 4 + k] / 255;
-        if (!w) continue;
-        let b = m.mesh.bones[i * 4 + k];
-        const bind = b < J;
-        if (!bind) b -= J;
-        let px = v[i * 8], py = v[i * 8 + 1], pz = v[i * 8 + 2];
-        const ib = m.joints[b].inverseBind;
-        if (bind && ib) { const x = ib[0] * px + ib[1] * py + ib[2] * pz + ib[3], yy = ib[4] * px + ib[5] * py + ib[6] * pz + ib[7], z = ib[8] * px + ib[9] * py + ib[10] * pz + ib[11]; px = x; py = yy; pz = z; }
-        const o = b * 12;
-        y += w * (world[o + 4] * px + world[o + 5] * py + world[o + 6] * pz + world[o + 7]);
-      }
-      if (y > top) top = y;
-    }
-    return top > 0 && top < 100 ? top : 14;
   }
 
   private render(): void {
@@ -333,7 +352,7 @@ export class Game {
       if (sb) this.drawFighterDebug(ctx, sb.fighter);
       for (const p of e.plugins) p.render?.(e, ctx, (x, y) => this.view.toClient(x, y));
       this.debug.text(ctx, [
-        `${fp.motionName}  frame ${fp.animFrame.toFixed(1)}  ${fp.ga ? 'air' : 'ground'}  jumps ${fp.jumpsUsed}`,
+        `${e.data.name}  ${fp.motionName}  frame ${fp.animFrame.toFixed(1)}  ${fp.ga ? 'air' : 'ground'}  jumps ${fp.jumpsUsed}`,
         `pos ${fp.pos.x.toFixed(2)}, ${fp.pos.y.toFixed(2)}  vel ${fp.selfVel.x.toFixed(3)}, ${fp.selfVel.y.toFixed(3)}  gr ${fp.grVel.toFixed(3)}`,
         `engine step ${this.stepMs.toFixed(3)} ms · stage ${this.stage!.data.segments.length} segs, scan ${this.stage!.lastBuildMs.toFixed(1)} ms/frame`,
         `px_per_unit ${this.view.ppu.toFixed(2)} · plugins: ${e.plugins.map((p) => p.id).join(', ') || 'none'}`,
@@ -363,11 +382,41 @@ export class Game {
   showError(text: string): void { this.overlay.showError(text); }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.overlay.destroy();
     this.bridge.destroy();
-    this.destroyed = true;
-    this.adapterLink?.disconnect();
+    // With the extension gone (an orphaned copy), even disconnecting throws.
+    try { this.adapterLink?.disconnect(); } catch { /* already cut off */ }
     this.adapterLink = null;
     this.gl?.getExtension('WEBGL_lose_context')?.loseContext();
   }
+}
+
+/** Height of a model standing in its rest pose at its model scale, in Melee units, from the skinned mesh. */
+function measureHeight(m: FighterModel, scale: number): number {
+  const J = m.joints.length, v = m.mesh.vertices;
+  const local = restPose(m.joints), world = new Float32Array(J * 12);
+  // The root as Engine.updatePose sets it: facing rotation and model scale.
+  local[1] = Math.PI / 2;
+  local[3] = local[4] = local[5] = scale;
+  worldMatrices(m.joints, local, world, new Float32Array(J * 3));
+  let top = -Infinity;
+  for (let i = 0; i < v.length / 8; i++) {
+    let y = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = m.mesh.weights[i * 4 + k] / 255;
+      if (!w) continue;
+      let b = m.mesh.bones[i * 4 + k];
+      const bind = b < J;
+      if (!bind) b -= J;
+      let px = v[i * 8], py = v[i * 8 + 1], pz = v[i * 8 + 2];
+      const ib = m.joints[b].inverseBind;
+      if (bind && ib) { const x = ib[0] * px + ib[1] * py + ib[2] * pz + ib[3], yy = ib[4] * px + ib[5] * py + ib[6] * pz + ib[7], z = ib[8] * px + ib[9] * py + ib[10] * pz + ib[11]; px = x; py = yy; pz = z; }
+      const o = b * 12;
+      y += w * (world[o + 4] * px + world[o + 5] * py + world[o + 6] * pz + world[o + 7]);
+    }
+    if (y > top) top = y;
+  }
+  return top > 0 && top < 100 ? top : 14;
 }

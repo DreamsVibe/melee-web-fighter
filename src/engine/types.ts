@@ -33,6 +33,8 @@ export interface CharacterData {
   /** Joints whose positions bound the ECB (ftData +0x44), and its side offset. */
   ecbBones: number[];
   ecbSideOffset: number;
+  /** Ledge-grab box (ftData +0x44: x reach, y offset, height), unscaled. */
+  ledgeSnap: [number, number, number];
   /** Joint index of TransN (root motion carrier). */
   transN: number;
   /** Joint index of each Fighter_Part (TopN, TransN, XRotN, YRotN, HipN, ... TransN2). */
@@ -298,10 +300,17 @@ export interface Fighter {
   /** Hitstun: frames left (mv.co.damage.x0) and the flag that blocks actions (x221C_b6). */
   hitstun: number;
   inHitstun: boolean;
-  /** Hits connect but do nothing (x198C = 1) for invincibleFrames (x1994); intangible: they pass (2). */
+  /** Hits connect but do nothing (x198C = 1) for invincibleFrames (x1994); intangible: they pass (2), for intangibleFrames (x1990). */
   invincible: boolean;
   intangible: boolean;
   invincibleFrames: number;
+  intangibleFrames: number;
+  /** The script's body collision state (x1988): 0 normal, 1 invincible, 2 intangible. */
+  bodyState: number;
+  /** The ledge the fighter hangs from or gets up onto (mv.co.cliff.ledge_id): a floor end, 1 = left end, -1 = right end. */
+  ledge: { seg: Segment; side: 1 | -1 } | null;
+  /** Frames before a ledge can be caught again (x2064). */
+  ledgeCooldown: number;
   /** Push against other fighters this frame (xF8_playerNudgeVel.x). */
   nudge: number;
   /** Stale moves: this move's id and instance (x2068/x206C), and the queue of recent hits. */

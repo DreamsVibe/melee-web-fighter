@@ -1,4 +1,4 @@
-// Fox's neutral special (blaster), ported from ft/kinds/ftFox/ftfoxspecialn.c. Pressing B again during
+// Fox's and Falco's neutral special (blaster), ported from ft/kinds/ftFox/ftfoxspecialn.c. Pressing B again during
 // the loop keeps shooting; each shot is fired when the script sets var 2. Shots fly straight at the
 // blaster angle for the laser article's lifetime; they are drawn, and pass through the page.
 import type { Engine } from '../engine';
@@ -12,7 +12,8 @@ export const FX_N = { Start: 341, Loop: 342, End: 343, AirStart: 344, AirLoop: 3
 
 /** FtPart_RThumbNb: the blaster sits in Fox's right hand. */
 const RTHUMB_NB = 49;
-const LASER_SOUND = 110103, LASER_SOUND_BACK = 110106;
+/** foxSFX / falcoSFX: the shot's sound facing right, then facing left. */
+const LASER_SOUNDS: Record<string, [number, number]> = { fox: [110103, 110106], falco: [100099, 100102] };
 
 function init(e: Engine): void {
   const fp = e.fighter;
@@ -43,7 +44,8 @@ function fireCheck(e: Engine): void {
   const [x, y] = e.jointPoint(e.data.parts[RTHUMB_NB] ?? 0, 0, 1.2325000762939453, 4.263599872589111);
   const angle = fp.facing === 1 ? s.blaster_angle : Math.PI - s.blaster_angle;
   e.fireProjectile('laser', x, y, angle, s.blaster_velocity, e.data.articles.laser?.lifetime ?? 35);
-  e.playSound(fp.facing === -1 ? LASER_SOUND_BACK : LASER_SOUND);
+  const sounds = LASER_SOUNDS[e.data.id];
+  if (sounds) e.playSound(sounds[fp.facing === -1 ? 1 : 0]);
 }
 
 /** ftFox_SpecialN_CheckLoopInput: B again once the script allows it (var 0) keeps the loop going. */

@@ -119,12 +119,14 @@ test('engine: Fox stands, full hops, lands', async (disc) => {
   assert(e.fighter.motionName === 'Wait' || e.fighter.motionName === 'Landing', `did not land: ${e.fighter.motionName}`);
 }, true);
 
-test("engine: every one of Fox's moves starts, plays and returns to standing", async (disc) => {
-  const { foxData, newEngine, pad } = await import('./sim');
-  const data = await foxData(disc);
+/** Every move of a Fox-like character (Fox, Falco): each starts, plays and returns to standing. */
+async function checkEveryMove(disc: Disc, which: 'fox' | 'falco'): Promise<void> {
+  const { foxData, falcoData, newEngine, pad } = await import('./sim');
+  const data = which === 'fox' ? await foxData(disc) : await falcoData(disc);
   type P = Parameters<typeof pad>[0];
   // Each case: a list of [frames, pad] steps, then idle; the states it must pass through.
-  const cases: Array<{ name: string; steps: Array<[number, P]>; expect: string[]; lasers?: boolean }> = [
+  // `ends`: where the case may finish besides standing (Fox's long Firefox reaches the ledge).
+  const cases: Array<{ name: string; steps: Array<[number, P]>; expect: string[]; lasers?: boolean; ends?: string }> = [
     { name: 'jab, jab, rapid jab', steps: [[1, { buttons: 'A' }], [4, {}], [1, { buttons: 'A' }], [4, {}], ...Array.from({ length: 16 }, (_, i): [number, P] => [1, { buttons: i % 2 ? '' : 'A' }])], expect: ['Attack11', 'Attack12', 'Attack100Loop', 'Attack100End'] },
     { name: 'forward tilt', steps: [[3, { sx: 45 }], [1, { sx: 45, buttons: 'A' }]], expect: ['AttackS3S'] },
     { name: 'up tilt', steps: [[3, { sy: 40 }], [1, { sy: 40, buttons: 'A' }]], expect: ['AttackHi3'] },
@@ -146,7 +148,7 @@ test("engine: every one of Fox's moves starts, plays and returns to standing", a
     { name: 'firefox', steps: [[1, { sy: 127, buttons: 'B' }], [60, { sy: 127 }]], expect: ['SpecialHiHold', 'SpecialAirHi', 'SpecialHiFall', 'FallSpecial'] },
     { name: 'aerial blaster', steps: [[1, { buttons: 'X' }], [8, {}], [1, { buttons: 'B' }]], expect: ['SpecialAirNStart'], lasers: true },
     { name: 'aerial illusion', steps: [[1, { buttons: 'X' }], [8, {}], [1, { sx: 127, buttons: 'B' }]], expect: ['SpecialAirSStart', 'SpecialAirS', 'SpecialAirSEnd'] },
-    { name: 'aerial firefox sideways', steps: [[1, { buttons: 'X' }], [8, {}], [1, { sy: 127, buttons: 'B' }], [44, { sx: 127 }]], expect: ['SpecialHiHoldAir', 'SpecialAirHi'] },
+    { name: 'aerial firefox sideways', steps: [[1, { buttons: 'X' }], [8, {}], [1, { sy: 127, buttons: 'B' }], [44, { sx: 127 }]], expect: ['SpecialHiHoldAir', 'SpecialAirHi'], ends: 'CliffWait' },
   ];
   const failures: string[] = [];
   for (const c of cases) {
@@ -161,17 +163,138 @@ test("engine: every one of Fox's moves starts, plays and returns to standing", a
     };
     try {
       for (const [n, p] of c.steps) for (let i = 0; i < n; i++) { e.step(pad(p)); record(); }
-      for (let i = 0; i < 400 && !(e.fighter.motionName === 'Wait' && e.fighter.ga === 0); i++) { e.step(pad()); record(); }
+      for (let i = 0; i < 400 && !(e.fighter.motionName === 'Wait' && e.fighter.ga === 0) && e.fighter.motionName !== c.ends; i++) { e.step(pad()); record(); }
     } catch (err) {
       failures.push(`${c.name}: threw ${(err as Error).stack}`);
       continue;
     }
     const missing = c.expect.filter((s) => !seen.includes(s));
-    const done = e.fighter.motionName === 'Wait';
+    const done = e.fighter.motionName === 'Wait' || e.fighter.motionName === c.ends;
     console.log(`      ${c.name.padEnd(24)} ${seen.join(' > ')}${c.lasers ? `  (${lasers} shots)` : ''}`);
     if (missing.length || !done || (c.lasers && !lasers)) failures.push(`${c.name}: missing ${missing.join(', ') || '-'}, ended in ${e.fighter.motionName}${c.lasers && !lasers ? ', no laser fired' : ''}`);
   }
   assert(!failures.length, failures.join('\n      '));
+}
+
+test("engine: every one of Fox's moves starts, plays and returns to standing", (disc) => checkEveryMove(disc, 'fox'), true);
+test("engine: every one of Falco's moves starts, plays and returns to standing", (disc) => checkEveryMove(disc, 'falco'), true);
+
+test('engine: Falco is his own character (jumpsquat, jump height, laser sound)', async (disc) => {
+  const { foxData, falcoData, newEngine, pad } = await import('./sim');
+  const fox = await foxData(disc), falco = await falcoData(disc);
+  assert(falco.id === 'falco' && falco.name === 'Falco', `loaded ${falco.id}`);
+  const hop = (data: typeof fox) => {
+    const e = newEngine(data);
+    for (let i = 0; i < 10; i++) e.step(pad());
+    let squat = 0, peak = 0;
+    for (let i = 0; i < 120; i++) {
+      e.step(pad({ buttons: i < 12 ? 'X' : '' }));
+      if (e.fighter.motionName === 'KneeBend') squat++;
+      peak = Math.max(peak, e.fighter.pos.y);
+    }
+    return { squat, peak, end: e.fighter.motionName };
+  };
+  const a = hop(fox), b = hop(falco);
+  console.log(`      jumpsquat fox ${a.squat} falco ${b.squat}; full hop peak fox ${a.peak.toFixed(2)} falco ${b.peak.toFixed(2)}`);
+  assert(a.squat === fox.attrs.jump_startup_time && b.squat === falco.attrs.jump_startup_time && b.squat > a.squat, 'jumpsquat follows each character');
+  assert(b.peak > a.peak + 10, `Falco jumps higher than Fox (${b.peak} vs ${a.peak})`);
+  assert(b.end === 'Wait' || b.end === 'Landing', `Falco did not land: ${b.end}`);
+  // The shot sound is Falco's own (falcoSFX in ftfoxspecialn.c), from his sound bank.
+  const e = newEngine(falco);
+  for (let i = 0; i < 10; i++) e.step(pad());
+  const sounds: number[] = [];
+  e.step(pad({ buttons: 'B' }));
+  for (let i = 0; i < 40; i++) { e.step(pad()); for (const ev of e.events) if (ev.type === 'sound') sounds.push(ev.id); }
+  assert(sounds.includes(100099) && !sounds.includes(110103), `laser sounds ${sounds.join(', ')}`);
+  assert(falco.soundIds.get('falco_falcoLaser') === 100099, 'Falco laser sound imported');
+}, true);
+
+test('ledges: catch facing the stage, hang, every getup, let go, time out (Fox and Falco)', async (disc) => {
+  const { foxData, falcoData, finalDestination, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  type P = Parameters<typeof pad>[0];
+  const failures: string[] = [];
+  for (const data of [await foxData(disc), await falcoData(disc)]) {
+    // Off Final Destination's right edge (ledge at x = 85.57), facing the stage, falling past the ledge.
+    const run = (steps: Array<[number, P]>, opts: { facing?: number; percent?: number } = {}) => {
+      const e = new Engine(data), st = finalDestination();
+      e.setStage(st);
+      e.spawn(92, 6, opts.facing ?? -1);
+      e.fighter.percent = opts.percent ?? 0;
+      const seen: string[] = [];
+      let caughtAt: [number, number] | null = null, intangibleHanging = false, jumps = -1;
+      for (const [n, p] of steps) for (let i = 0; i < n; i++) {
+        e.step(pad(p));
+        const fp = e.fighter;
+        if (seen[seen.length - 1] !== fp.motionName) seen.push(fp.motionName);
+        if (fp.motionName === 'CliffWait') { caughtAt ??= [fp.pos.x, fp.pos.y]; intangibleHanging ||= fp.intangible; jumps = fp.jumpsUsed; }
+      }
+      return { e, seen, caughtAt, intangibleHanging, jumps };
+    };
+    const hang: Array<[number, P]> = [[40, {}]];
+    const check = (name: string, ok: boolean, r: { seen: string[] }) => { if (!ok) failures.push(`${data.name} ${name}: ${r.seen.join(' > ')}`); };
+    const c = run([...hang, [20, {}]]);
+    check('catch', c.seen.includes('CliffCatch') && c.seen[c.seen.length - 1] === 'CliffWait' && c.intangibleHanging && c.jumps === 1 &&
+      !!c.caughtAt && c.caughtAt[0] > 85.5 && c.caughtAt[1] < 0, c);
+    // Tilting toward the stage climbs (a smash up would be a tap jump, which the game checks first).
+    const climb = run([...hang, [1, { sx: -80 }], [80, {}]]);
+    check('climb', climb.seen.includes('CliffClimbQuick') && climb.e.fighter.motionName === 'Wait' && climb.e.fighter.pos.x < 85.5 && climb.e.fighter.ga === 0, climb);
+    const attack = run([...hang, [1, { buttons: 'A' }], [90, {}]]);
+    check('attack', attack.seen.includes('CliffAttackQuick') && attack.e.fighter.motionName === 'Wait' && attack.e.fighter.pos.x < 85.5, attack);
+    const roll = run([...hang, [1, { buttons: 'R' }], [90, {}]]);
+    check('roll', roll.seen.includes('CliffEscapeQuick') && roll.e.fighter.motionName === 'Wait' && roll.e.fighter.pos.x < attack.e.fighter.pos.x, roll);
+    const jump = run([...hang, [1, { buttons: 'X' }], [140, {}]]);
+    check('jump', jump.seen.includes('CliffJumpQuick1') && jump.seen.includes('CliffJumpQuick2') && jump.e.fighter.motionName === 'Wait', jump);
+    const slow = run([...hang, [1, { sx: -80 }], [120, {}]], { percent: 120 });
+    check('slow climb over 100%', slow.seen.includes('CliffClimbSlow') && slow.e.fighter.motionName === 'Wait', slow);
+    // Pushing away lets go, and the cooldown keeps it from catching again straight away.
+    const drop = run([...hang, [3, { sx: 127 }], [5, {}]]);
+    check('let go', drop.e.fighter.motionName === 'Fall' && drop.e.fighter.ledgeCooldown > 0, drop);
+    const timeout = run([[700, {}]]);
+    check('time out', timeout.seen.includes('DamageFall'), timeout);
+    const away = run([[40, {}]], { facing: 1 });
+    check('facing away never catches', !away.seen.includes('CliffCatch'), away);
+    const down = run([[40, { sy: -127 }]]);
+    check('holding down never catches', !down.seen.includes('CliffCatch'), down);
+    // Firefox catches a ledge facing either way (only on the way down, like every ledge catch): here
+    // facing away from the stage, aimed down past the ledge, letting go of the stick once launched
+    // (held down, it would let the ledge go by).
+    const e = new Engine(data), st = finalDestination();
+    e.setStage(st);
+    e.spawn(93, 14, 1);
+    e.step(pad({ sy: 127, buttons: 'B' }));
+    const ff: string[] = [];
+    for (let i = 0; i < 90 && !ff.includes('CliffCatch'); i++) {
+      e.step(pad(ff.includes('SpecialAirHi') ? {} : { sy: -127 }));
+      if (ff[ff.length - 1] !== e.fighter.motionName) ff.push(e.fighter.motionName);
+    }
+    if (!ff.includes('CliffCatch')) failures.push(`${data.name} firefox to ledge: ${ff.join(' > ')}`);
+    console.log(`      ${data.name.padEnd(6)} caught at (${c.caughtAt?.map((v) => v.toFixed(2)).join(', ')}); climb > ${climb.seen.slice(-2).join(' > ')}; firefox ${ff.slice(-2).join(' > ')}`);
+  }
+  assert(!failures.length, failures.join('\n      '));
+}, true);
+
+test("sandbag: Falco's laser makes it flinch, Fox's only adds percent", async (disc) => {
+  const { foxData, falcoData, sandbagData, finalDestination, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { World } = await import('../src/engine/world');
+  const sb = await sandbagData(disc);
+  const shoot = (data: Awaited<ReturnType<typeof foxData>>) => {
+    const w = new World(), st = finalDestination();
+    const a = w.add(new Engine(data)), b = w.add(new Engine(sb));
+    w.setStage(st);
+    a.spawnGrounded(0, st.segments[0], 1);
+    b.spawnGrounded(30, st.segments[0], -1);
+    for (let i = 0; i < 5; i++) w.step([pad()]);
+    w.step([pad({ buttons: 'B' })]);
+    const states = new Set<string>();
+    for (let i = 0; i < 60; i++) { w.step([pad()]); states.add(b.fighter.motionName); }
+    return { percent: b.fighter.percent, flinched: [...states].some((s) => s.startsWith('Damage')) };
+  };
+  const fox = shoot(await foxData(disc)), falco = shoot(await falcoData(disc));
+  console.log(`      fox laser ${fox.percent}% flinch ${fox.flinched}; falco laser ${falco.percent}% flinch ${falco.flinched}`);
+  assert(fox.percent > 0 && !fox.flinched, "Fox's laser should add percent without flinching");
+  assert(falco.percent > 0 && falco.flinched, "Falco's laser should add percent and flinch");
 }, true);
 
 test('validation: web engine matches the real game frame by frame (tests/expected)', async (disc) => {
@@ -311,39 +434,48 @@ test('sandbag: hits add percent, "no damage" keeps 0% and knocks back as at 0%, 
   assert(f.percent === 0 && Math.abs(f.pos.x - (dmg.a.fighter.pos.x + 22)) < 1 && f.motionName === 'Fall', 'respawn');
 }, true);
 
-test("illusion: the dash's afterimage item carries the hit, from the ground and the air", async (disc) => {
-  const { foxData, sandbagData, finalDestination, pad } = await import('./sim');
+test("side special: the dash's afterimage item carries the hit (Fox's Illusion, Falco's Phantasm)", async (disc) => {
+  const { foxData, falcoData, sandbagData, finalDestination, pad } = await import('./sim');
   const { Engine } = await import('../src/engine/engine');
   const { World } = await import('../src/engine/world');
-  const fox = await foxData(disc), sb = await sandbagData(disc);
-  const art = fox.illusion;
-  assert(!!art && art.states.length === 3, 'afterimage item imported');
-  const first = (s: number) => art!.states[s].find((c) => c.op === 'hitbox') as { damage: number; angle: number; kbg: number } | undefined;
-  console.log(`      item: lifetime ${art!.lifetime} + ${art!.endLifetime}, scale ${art!.scale}; ground ${JSON.stringify(first(0))}; air ${JSON.stringify(first(1))}`);
-  const dash = (steps: Array<[number, Parameters<typeof pad>[0]]>, gap: number) => {
+  type P = Parameters<typeof pad>[0];
+  const sb = await sandbagData(disc);
+  const hop: Array<[number, P]> = [[1, { buttons: 'X' }], [4, {}]];
+  // Ground, air against a standing Sandbag, and air against Sandbag in the air beside the fighter.
+  const dash = (data: Awaited<ReturnType<typeof foxData>>, pre: Array<[number, P]>, sbAir: boolean) => {
     const w = new World(), st = finalDestination();
-    const a = w.add(new Engine(fox)), b = w.add(new Engine(sb));
+    const a = w.add(new Engine(data)), b = w.add(new Engine(sb));
     w.setStage(st);
     a.spawnGrounded(0, st.segments[0], 1);
-    b.spawnGrounded(gap, st.segments[0], -1);
+    b.spawnGrounded(30, st.segments[0], -1);
     for (let i = 0; i < 5; i++) w.step([pad()]);
-    let foxHitlag = false, hitAt = '', maxItems = 0, itemsAfter = -1;
-    for (const [n, p] of [...steps, [80, {}]] as Array<[number, Parameters<typeof pad>[0]]>) for (let i = 0; i < n; i++) {
+    for (const [n, p] of pre) for (let i = 0; i < n; i++) w.step([pad(p)]);
+    if (sbAir) b.spawn(a.fighter.pos.x + 25, a.fighter.pos.y + 4, -1);
+    let hitlag = false, maxItems = 0, itemsAfter = 0, angle = -1, kbY = 0;
+    for (const [n, p] of [[1, { sx: 127, buttons: 'B' }], [80, {}]] as Array<[number, P]>) for (let i = 0; i < n; i++) {
       const before = b.fighter.percent;
       w.step([pad(p)]);
-      foxHitlag ||= a.fighter.hitlag > 0;
+      hitlag ||= a.fighter.hitlag > 0;
       maxItems = Math.max(maxItems, a.afterimages.length);
-      if (!hitAt && b.fighter.percent !== before) hitAt = `${a.fighter.motionName} ${b.fighter.percent}% ${b.fighter.motionName} kb ${b.fighter.kbVel.x.toFixed(2)},${b.fighter.kbVel.y.toFixed(2)}`;
+      if (angle < 0 && b.fighter.percent !== before) { angle = b.fighter.kbAngle; kbY = b.fighter.kbVel.y; }
       if (a.fighter.motionId < 347 || a.fighter.motionId > 352) itemsAfter = Math.max(itemsAfter, a.afterimages.length);
     }
-    return { hitAt, foxHitlag, maxItems, itemsAfter, percent: b.fighter.percent };
+    return { percent: b.fighter.percent, angle, kbY, hitlag, maxItems, itemsAfter };
   };
-  const ground = dash([[1, { sx: 127, buttons: 'B' }]], 30);
-  const air = dash([[1, { buttons: 'X' }], [4, {}], [1, { sx: 127, buttons: 'B' }]], 30);
-  console.log(`      ground: ${ground.hitAt || 'no hit'}; air: ${air.hitAt || 'no hit'}`);
-  for (const [name, r] of [['ground', ground], ['air', air]] as const) {
-    assert(r.percent === 7, `${name} Illusion should deal 7%, dealt ${r.percent}`);
-    assert(!r.foxHitlag, `${name}: the item's hit gives Fox no hitlag`);
-    assert(r.maxItems === 1 && r.itemsAfter <= 0, `${name}: one afterimage, gone after the move (${r.maxItems}, ${r.itemsAfter})`);
+  // Angles from the ground and in the air, from each one's afterimage item on the disc.
+  const expect: Array<[Awaited<ReturnType<typeof foxData>>, number, number]> = [[await foxData(disc), 80, 80], [await falcoData(disc), 65, 270]];
+  for (const [data, groundAngle, airAngle] of expect) {
+    const art = data.illusion;
+    assert(!!art && art.states.length === 3, `${data.name}: afterimage item imported`);
+    const cases = { ground: dash(data, [], false), air: dash(data, hop, false), 'air vs air': dash(data, hop, true) };
+    console.log(`      ${data.name.padEnd(6)} scale ${art!.scale}; ` + Object.entries(cases).map(([k, r]) => `${k} ${r.percent}% ${r.angle}° kb y ${r.kbY.toFixed(2)}`).join('; '));
+    for (const [name, r] of Object.entries(cases)) {
+      assert(r.percent === 7, `${data.name} ${name}: should deal 7%, dealt ${r.percent}`);
+      assert(r.angle === (name === 'ground' ? groundAngle : airAngle), `${data.name} ${name}: angle ${r.angle}`);
+      assert(!r.hitlag, `${data.name} ${name}: the item's hit gives the attacker no hitlag`);
+      assert(r.maxItems === 1 && r.itemsAfter === 0, `${data.name} ${name}: one afterimage, gone after the move`);
+    }
+    // Falco's aerial Phantasm spikes an airborne opponent; a grounded one bounces off the floor.
+    if (airAngle === 270) assert(cases['air vs air'].kbY < 0 && cases.air.kbY > 0, `${data.name}: spike ${cases['air vs air'].kbY}, bounce ${cases.air.kbY}`);
   }
 }, true);

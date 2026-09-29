@@ -9,14 +9,16 @@ import type { OutFile, Sources, Log } from './pipeline';
 
 /**
  * Sounds the engine plays itself: fast fall (ftcommon.c), landing thud (ftaction.c 0x46), blaster
- * shots (ftfoxspecialn.c foxSFX), smash charge (ft_0DF0.c), shield on/off (ftCo_Guard.c).
+ * shots (ftfoxspecialn.c foxSFX, falcoSFX), smash charge (ft_0DF0.c), shield on/off (ftCo_Guard.c).
  */
 export const ENGINE_SOUNDS = {
-  fastFall: 150, landing: 70, laser: 110103, laserBack: 110106, smashCharge: 123, shieldOn: 110, shieldOff: 127,
+  fastFall: 150, landing: 70, laser: 110103, laserBack: 110106, falcoLaser: 100099, falcoLaserBack: 100102, smashCharge: 123, shieldOn: 110, shieldOff: 127,
   // Being hit: the launch "fly" sound (ftCo_8008DCE0 x1908), the floor thud of a tumble landing
   // (ftCo_DownBound_SfxIds) and a hit on an invincible fighter (ftColl_803C0C40).
   flyStrong: 0x4f, flyMedium: 0x50, downBound1: 9, downBound2: 10, downBound3: 11, downBound4: 12,
   hitInvincible1: 141, hitInvincible2: 142, hitInvincible3: 143,
+  // Catching a ledge (ftCliffCommon_80081370).
+  ledgeCatch: 4,
 };
 
 /**

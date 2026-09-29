@@ -1,4 +1,4 @@
-// Test helpers: build Fox's folder from the disc in memory and run the engine on a flat stage.
+// Test helpers: build the character folders from the disc in memory and run the engine on a flat stage.
 import type { Disc } from '../src/importer/disc';
 import { buildFolder } from '../src/importer/pipeline';
 import { effectiveFiles, type FileMap } from '../src/shared/character';
@@ -21,6 +21,10 @@ export async function foxData(disc: Disc, overrides: FileMap = new Map()): Promi
   const all = new Map(await foxFolder(disc));
   for (const [p, d] of overrides) all.set('overrides/' + p, d);
   return loadCharacter(effectiveFiles(all), 'characters/fox/');
+}
+
+export async function falcoData(disc: Disc): Promise<CharacterData> {
+  return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/falco/');
 }
 
 export async function sandbagData(disc: Disc): Promise<CharacterData> {

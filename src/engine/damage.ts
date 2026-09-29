@@ -10,6 +10,7 @@ import { airPhysics, fall, groundFriction, selfDeaccel, clampAirDrift } from './
 import { airCollision, groundCollision, EdgeMode } from './collision';
 import { fallEnter, waitEnter, landingBasic, airIasa, collFallOff } from './states';
 import { groundIasa } from './groundmoves';
+import { ledgeCatchCheck } from './cliff';
 
 const f = Math.fround;
 
@@ -261,7 +262,7 @@ def(flyState(DMG.DamageFlyTop, 'DamageFlyTop'));
 def(flyState(DMG.DamageFlyRoll, 'DamageFlyRoll', true));
 
 /** ftCo_80090780: tumble. */
-function damageFallEnter(e: Engine): void {
+export function damageFallEnter(e: Engine): void {
   const fp = e.fighter;
   if (fp.ga === GA.Ground) e.toAir();
   e.changeMotion(DMG.DamageFall, MF.KeepFastFall | MF.SkipHit, 0, 1);
@@ -272,7 +273,8 @@ def({
   id: DMG.DamageFall, name: 'DamageFall', move: 'DamageFall',
   iasa(e) { airIasa(e); },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
-  coll(e) { if (landed(e)) downBoundEnter(e); },
+  // ft_8008370C: a tumble can catch a ledge.
+  coll(e) { if (landed(e)) downBoundEnter(e); else ledgeCatchCheck(e, 'facing'); },
 });
 
 /** ftCo_80097E8C: lying down after the bounce. */

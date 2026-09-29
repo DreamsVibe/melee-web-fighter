@@ -1,5 +1,5 @@
 // Settings page: adapter helper status, mapping, display/sound, plugins, overrides (edit, toggle, zip).
-import { DEFAULT_KEYBOARD, KEY_ACTIONS, loadSettings, saveSettings, type GamepadMapping, type KeyAction, type Settings } from '../shared/settings';
+import { CHARACTERS, DEFAULT_KEYBOARD, KEY_ACTIONS, loadSettings, saveSettings, type GamepadMapping, type KeyAction, type Settings } from '../shared/settings';
 import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
 import { AdapterDecoder, BTN, emptyPad } from '../engine/pad';
 import { announceChange, deleteFiles, getFile, listFiles, putFiles, asText, FORMAT_VERSION } from '../shared/db';
@@ -51,10 +51,22 @@ async function init(): Promise<void> {
   settings = await loadSettings();
   const imported = asText(await getFile('characters/fox/character.json'));
   const current = imported && (JSON.parse(imported).formatVersion ?? 0) >= FORMAT_VERSION;
+  const hasFalco = !!(await getFile('characters/falco/character.json'));
   $('importState').innerHTML = !imported
-    ? '<b>Fox is not imported yet:</b> <a href="import.html">import your Melee disc</a> first.'
-    : current ? 'Fox and Sandbag are imported. <a href="import.html">Re-import or preview</a>.'
-      : '<b>This version needs your disc again</b> (for Sandbag and hits): <a href="import.html">import it</a>.';
+    ? '<b>Nothing is imported yet:</b> <a href="import.html">import your Melee disc</a> first.'
+    : !current ? '<b>This version needs your disc again</b> (for ledges): <a href="import.html">import it</a>.'
+      : !hasFalco ? '<b>Import your disc again to add Falco</b>: <a href="import.html">import it</a>.'
+        : 'Fox, Falco and Sandbag are imported. <a href="import.html">Re-import or preview</a>.';
+
+  // --- character
+  const character = $<HTMLSelectElement>('character');
+  character.replaceChildren(...CHARACTERS.map((c) => new Option(c.name, c.id)));
+  character.value = settings.character;
+  const characterMsg = () => {
+    $('characterMsg').textContent = character.value === 'falco' && !hasFalco ? 'Falco needs your disc imported again (link above).' : '';
+  };
+  characterMsg();
+  character.onchange = () => { characterMsg(); void saveSettings({ character: character.value as Settings['character'] }); };
 
   // --- updates
   void initUpdates();
@@ -129,7 +141,7 @@ async function init(): Promise<void> {
   };
   $('exportFolder').onclick = async () => {
     const files = (await listFiles()).filter((f) => /^(characters|common)\//.test(f.path));
-    download('fox-folder.zip', writeZip(files.map((f) => ({ path: f.path, data: f.data }))));
+    download('character-folders.zip', writeZip(files.map((f) => ({ path: f.path, data: f.data }))));
   };
 }
 
@@ -200,7 +212,7 @@ async function initUpdates(): Promise<void> {
   if (typeof pendingUpdate === 'string') {
     await chrome.storage.local.remove('pendingUpdate');
     $('updateState').textContent = pendingUpdate === VERSION
-      ? `Updated to ${VERSION}. Reload any page that had Fox on it.`
+      ? `Updated to ${VERSION}. Reload any page that had a fighter on it.`
       : `The files for ${pendingUpdate} were written, but Chrome still runs ${VERSION}: the folder you picked isn't the one Chrome loads. Use a different folder and update again.`;
   }
 }
@@ -427,7 +439,8 @@ async function fillFileSelect(): Promise<void> {
   const files = (await listFiles()).filter((f) => /^(characters|common)\/.*\.(json|move)$/.test(f.path));
   $('fileSelect').replaceChildren(...files.map((f) => new Option(f.path, f.path)));
   const sel = $<HTMLSelectElement>('fileSelect');
-  if (files.some((f) => f.path === 'characters/fox/attributes.json')) sel.value = 'characters/fox/attributes.json';
+  const mine = `characters/${settings.character}/attributes.json`;
+  if (files.some((f) => f.path === mine)) sel.value = mine;
 }
 
 async function openEditor(path: string): Promise<void> {
@@ -480,7 +493,7 @@ async function saveEditor(): Promise<void> {
   }
   await putFiles([{ path: 'overrides/' + path, data }]);
   announceChange(['overrides/' + path]);
-  $('editMsg').textContent = 'Saved. Fox reloads it live.';
+  $('editMsg').textContent = 'Saved. The fighter on the page reloads it live.';
   await renderOverrides();
 }
 

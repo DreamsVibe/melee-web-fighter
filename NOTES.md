@@ -509,6 +509,97 @@ nudge is added to the position before self velocity in `procUpdate`.
 * On a page, Sandbag respawns beside Fox at 0% once it is past the screen edge by 12 units on any
   side. In the game it can't be KO'd.
 
+## Ledges
+
+Ported from `ft/ftcliffcommon.c`, `ft/kinds/ftCommon/ftCo_Cliff*.c`, the ledge search in
+`mp/mpcoll.c` (`mpColl_80044164` / `800443C4`) and `mp/mplib.c` (`mpLib_80051BA8_Floor`), and the
+air-collision variants in `ft/ft_081B.c`. Engine: `src/engine/cliff.ts`, `findLedge` in `collision.ts`.
+
+* **Where ledges are.** On a page, solid blocks (media, controls, boxes with a background or border)
+  get a ledge at both top corners (`Segment.ledges`); text lines don't, like Melee's platforms, and
+  neither do fixed/sticky blocks, whose corners sit at the edge of the screen. Final Destination's
+  floor has both.
+* **Catching.** Only while falling, facing the ledge (Firefox's flight and its end: either way,
+  `CLIFFCATCH_BOTH`), not during the 30-frame cooldown after letting go (`ledge_cooldown`, x2064,
+  counted in procUpdate outside hitlag), not while holding down past 0.66, and never for Sandbag.
+  The search box reaches `ledge_snap_x` (11) ahead of the ECB, centred `ledge_snap_y` (13) above the
+  fighter, `ledge_snap_height` (9) tall, all × model scale (`ftData +0x44 +0x10..0x18`), swept over
+  the frame's movement. The fighter must be past the corner with the ECB bottom below it.
+* **Which states catch.** Jump, double jump, Fall, FallAerial, FallSpecial, Pass, DamageFall
+  (tumble), CliffJump2, and Fox's/Falco's SpecialHiHoldAir, SpecialAirHi, SpecialHiFall,
+  SpecialAirSStart, SpecialAirS, SpecialAirSEnd. Not aerials, air dodge, the reflector or the
+  blaster, and not DamageFly (the launch before tumble).
+* **Hanging.** The catch turns the fighter to the stage, zeroes every velocity, resets jumps to one
+  used (the double jump comes back) and plays sound 4 and FtSFX `x28`. Position is the ledge corner
+  plus TransN (`x68C`, the root-motion sample), every frame, so the fighter moves with a scrolling
+  page. CliffWait gives `cliff_intangible_frames` (30, x1990, counted in procAnim) of
+  intangibility on every catch (Melee has no per-airtime limit), and lets go into DamageFall after
+  640 frames (480 at `cliff_slow_percent` = 100% or more).
+* **Getups** (CliffWait IASA in the game's order): A/B or C-stick up = attack (move ids 61/62, slow
+  above 100%), L/R or C-stick toward the stage = roll, jump input = ledge jump, then the stick (only
+  after it has been neutral once): up or toward the stage climbs, down or away lets go with the
+  cooldown. A smashed-up stick is a tap jump, which the game checks before climbing. The getups
+  hang from the corner until TransN is forward of and above it, then land on that floor and finish
+  by root motion on the ground.
+* **Body state.** Script command 26 (`body_state` in `.move` files, x1988) is now modelled: 2 makes
+  hits pass through, 1 makes them connect without effect, and a motion change resets it. The
+  getups, rolls and spot dodges use it. The hurt state is the larger of it and the timed one.
+* `FORMAT_VERSION` is 4: the ledge box (`character.json` `ecb.ledgeSnap`) and constants
+  (`common.json` `cliff_*`, `ledge_cooldown`) come from the disc, so earlier imports ask for it again.
+
+### Deviations (ledges)
+
+* Not validated frame by frame (no reference traces with ledges yet).
+* One fighter per ledge is not enforced (`ft_80082E3C`): only the player can catch ledges.
+* The game's line-of-sight checks between the fighter and the ledge always pass: page geometry has
+  no walls.
+* Ledge-catch effects (the flash, rumble) aren't drawn.
+
+## Falco
+
+Falco is the first character added through `CharacterSpec`. Everything he needs was already data or
+Fox's code:
+
+* **Same code as Fox.** `ftFc_Init_MotionStateTable` (`ft/kinds/ftFalco/ftfalco.c`) lists the ftFx
+  functions for motion ids 341-375, and `ftFc_Init_LoadSpecialAttrs` calls Fox's. So his action
+  names are `FOX_SUBMOTIONS`, his special attributes use `FOX_SPECIAL_FIELDS` (ftFox_DatAttrs, same
+  layout), and his `.move` files attach the same behavior modules. The global state table and
+  `specials` hooks serve both.
+* **Files:** `PlFc.dat` (`ftDataFalco`), `PlFcNr.dat` (`PlyFalco5K_Share_joint`, 67 joints),
+  `PlFcAJ.dat` (221 animations), `audio/us/falco.ssm` (bank 10: ids 100000+). Ft_Kind is 0x16 (22),
+  which indexes PlCo's part table (RThumbNb = joint 61, the blaster's hand).
+* **The one kind branch in Fox's code** that matters here is the blaster shot sound
+  (`ftfoxspecialn.c`: `foxSFX` 110103/110106, `falcoSFX` 100099/100102), in `behaviors/blaster.ts`.
+  The shot's item kind comes from the special attributes (`x1C`: Fox 54, Falco 55), and both kinds
+  run the same FoxLaser item logic (`it/kinds/itfoxlaser.c`); what differs is the article data read
+  from `PlFc.dat`: lifetime 100 (Fox 35) and hitboxes with knockback growth 100 and set knockback 5
+  (Fox 0/0), which is why his lasers make Sandbag flinch.
+* **His values from the disc:** gravity 0.17 (Fox 0.23), jumpsquat 5 (3), full jump 4.1 (3.68),
+  weight 80 (75), dash 1.5 (2.2), model scale 1.1 (0.96); Fire Bird travels 22 frames (30); blaster
+  velocity 5 (7).
+* **On the page** the player's character comes from the `character` setting. Switching it while on a
+  page replaces the engine (first in the World, so pad 0 still drives it) where the old one stood.
+  The page's scale always comes from Fox's height, so Falco stands taller, as next to Fox in the
+  game.
+* An import from an earlier version has no `characters/falco/`, but `FORMAT_VERSION` 4 (ledges)
+  asks every player to import the disc again anyway, which brings Falco in.
+* His Phantasm is Fox's Illusion code with his own afterimage item (article 3, scale 1.1): 65° from
+  the ground and a 270° spike in the air. See "Items: the side special's afterimage".
+
+### Deviations (Falco)
+
+* Not validated frame by frame: there are no reference traces of Falco yet. Recording some with
+  melee-unlocked (Falco is `ckind` 20 on the character select screen, 22 internally) and running
+  them through `tests/validate.ts` is the next step (the trace recorder can only swap player 2's
+  character so far). Node tests check that every move plays through, his jumpsquat and jump height
+  follow his attributes, his shot plays his sound, his laser flinches Sandbag, and his Phantasm
+  hits at his own angles.
+* His Phantasm afterimage is drawn like Fox's Illusion trail (the hit is the item's, as in the
+  game, but the item's own model isn't drawn), and the lasers, reflector and flames use Fox's 2D
+  stand-ins.
+* Node's `openAsBlob` reports a disc image over 4 GB with its size mod 2^32, so the tests can't read
+  such an `.iso` (a 1.4 GB `.ciso` of the same disc works). Browsers' `File` is not affected.
+
 ## Adding a character: what to reuse
 
 The engine and importer now take a character spec (`CharacterSpec` in `importer/pipeline.ts`): file
