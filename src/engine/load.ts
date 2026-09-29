@@ -77,5 +77,7 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
     push: info.push ?? [0, 3],
     constraints: info.constraints ?? [],
     laser: info.articles?.laser?.states ? info.articles.laser : null,
+    // Imports from before the afterimage was read have none: the side special then doesn't hit.
+    illusion: info.articles?.illusion?.states ? info.articles.illusion : null,
   };
 }

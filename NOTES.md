@@ -447,6 +447,35 @@ the Fox-only traces still match.
   by |speed| / 11.25 up to the article's scale. The offsets lie along −Z.
 * A laser disappears once it has dealt damage (the FoxLaser logic's `dmg_dealt` returns true).
 
+### Items: the side special's afterimage
+
+The side special's hit isn't in Fox's move scripts: the dash leaves an afterimage item
+(`it/kinds/itfoxillusion.c`, `ftFox_SpecialS_CreateGhostItem` in `ftfoxspecials.c`) that carries it.
+Engine: `Engine.spawnAfterimage`, `afterimages`; `readIllusion` in the importer.
+
+* **Which article.** Fox's Illusion is article 2 (`ftFx_Init_OnLoad`); Falco's Phantasm is article 3
+  (his own OnLoad registers `items[3]` as `It_Kind_Falco_Phantasm`) and uses the same item code.
+* **Spawn.** In SpecialS / SpecialAirS's anim callback, after the end-of-dash check, when the script
+  has set var 2 to 1 (it's reset to 0). The item starts in state 0 if the fighter is on the ground,
+  1 in the air; its script puts up the hitbox at spawn.
+* **Position.** Each frame its phys puts it on the trail one frame behind the fighter
+  (`ghostEffectPos[1]`), its joint turned by TopN's X rotation from then (`blendFrames[1]`).
+* **Life.** Its first attribute (5) counts down in the anim callback (not on the spawn frame, as for
+  the laser), then state 2 clears the hitbox for the second (2). It's removed at once when the
+  fighter leaves motions 347–352 (`ftFx_SpecialS_CheckGhostRemove`). Hitting doesn't remove it.
+* **Scale.** An item's hitbox radius is its size times the item's scale (`lbColl_8000805C`; items
+  never set `x43_b1`), and the offset goes through the item's joint, scaled the same. The scale is
+  `ItemCommonData x60` × the owner's player scale (1): Fox's Illusion 1, Falco's Phantasm 1.1.
+* **Values.** Fox: 7%, electric, 80°, base 68, growth 40 from the ground / 60 in the air, 4.16
+  radius, 3.9 above the item. Falco: 7%, electric, 65° from the ground (base 74, growth 60) and
+  270° in the air (base 70, growth 70: the spike), 6 above the item.
+* Being an item, its hit gives the attacker no hitlag, and a slow item pushes the victim away from
+  where it is (ftColl_8007A06C with `x40_vel` 0).
+* `sb_illusion` and `sb_airillusion` check Fox's against the game frame by frame. Keep those runs
+  away from Final Destination's edge: the game's swept wall check (`mpLib_800515A0`) catches the
+  side wall's top corner when a fast dash leaves the floor, which the engine's simpler wall check
+  doesn't. Pages have no walls, so this only matters for the test stage.
+
 ### Sandbag
 
 * The files are `PlSb.dat` (`ftDataSandbag`), `PlSbNr.dat` (`PlySandbag_Share_joint`, 55 joints)

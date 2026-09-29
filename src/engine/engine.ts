@@ -12,7 +12,7 @@ import { runScript, startScript, F32_MAX } from './script';
 import { clampGroundVel } from './physics';
 import { loadEcb, ECB_AIR, ECB_GROUND } from './collision';
 import { SegKind, type Segment, type StageData } from './stagetypes';
-import { GA, Smash, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type ItemCmd, type Named, type Plugin, type Projectile } from './types';
+import { GA, Smash, type Afterimage, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type ItemCmd, type Named, type Plugin, type Projectile } from './types';
 import { STATES, MS, type StateDef } from './states';
 import { collResolve, fighterNudge, moveIdOf, staleMultiplier } from './hits';
 import { damageExitHitlag, WAIT_REVERSE } from './damage';
@@ -31,6 +31,9 @@ export const MF = {
   /** Ours, not the game's: keep the afterimage trail (Fox's Illusion hands it from state to state). */
   KeepGhosts: 1 << 30,
 } as const;
+
+/** ftFx_MS_SpecialSStart .. SpecialAirSEnd: while the fighter is in these, its afterimage stays. */
+const FX_SPECIAL_S_FIRST = 347, FX_SPECIAL_S_LAST = 352;
 
 /** Wait and the walks keep the jab window open (Fighter_ChangeMotionState resets hitlag_mul otherwise). */
 const KEEPS_JAB_WINDOW = (msid: number) => msid >= MS.Wait && msid <= MS.WalkFast;
@@ -56,7 +59,7 @@ function newFighter(data: CharacterData): Fighter {
     jabWindow: 0, jabCombo: false, jabRapid: false, jabLast: 0, jabPresses: 0,
     smash: { state: Smash.None, frames: 0, hold: 0, rate: 1, sfx: false, damageMul: 1 },
     rootPos: { x: 0, y: 0, z: 0 }, rootDelta: { x: 0, y: 0, z: 0 }, xRot: NaN,
-    shieldHealth: data.common.shield_start_health ?? 60, lightshield: 0, shielding: false, ghosts: [],
+    shieldHealth: data.common.shield_start_health ?? 60, lightshield: 0, shielding: false, ghosts: [], ghostRot: [],
     hitboxes: Array.from({ length: 4 }, (_, id) => newHitbox(id)),
     input: { lx: 0, ly: 0, plx: 0, ply: 0, cx: 0, cy: 0, pcx: 0, pcy: 0, trigger: 0, ptrigger: 0, held: 0, pheld: 0, pressed: 0, released: 0 },
     hasPrevInput: false,
@@ -89,6 +92,8 @@ export class Engine implements EngineApi {
   readonly events: EngineEvent[] = [];
   /** Projectiles in flight (Fox's blaster shots). */
   readonly projectiles: Projectile[] = [];
+  /** The side special's afterimage items (Illusion, Phantasm): they carry its hitbox. */
+  readonly afterimages: Afterimage[] = [];
   plugins: Plugin[] = [];
   /** Effective attributes this frame (plugins may change them), and the common constants. */
   a: Named;
@@ -543,7 +548,7 @@ export class Engine implements EngineApi {
     fp.xRot = NaN;
     fp.smash.state = Smash.None;
     if (!KEEPS_JAB_WINDOW(msid)) fp.jabWindow = 0;
-    if (!(flags & MF.KeepGhosts)) fp.ghosts.length = 0;
+    if (!(flags & MF.KeepGhosts)) fp.ghosts.length = fp.ghostRot.length = 0;
     const behavior = this.behaviors.get(def.move) ?? null;
     const move = this.data.moves.get(def.move) ?? null;
     fp.move = move;
@@ -739,10 +744,29 @@ export class Engine implements EngineApi {
   }
 
   /**
+   * The side special's afterimage (it_8029CEB4 / it_8029CFF0): where the fighter stands, facing its
+   * way, in item state 0 from the ground or 1 from the air, whose script puts up the hitbox at once.
+   */
+  spawnAfterimage(): void {
+    const art = this.data.illusion;
+    if (!art) return;
+    const fp = this.fighter, state = fp.ga === GA.Air ? 1 : 0;
+    const a: Afterimage = {
+      x: fp.pos.x, y: fp.pos.y, facing: fp.facing, rotX: 0, state, timer: art.lifetime, age: 0,
+      hitboxes: Array.from({ length: 4 }, (_, id) => newHitbox(id)),
+      script: { cmds: art.states[state] ?? [], pc: 0, timer: 0 },
+      attackId: fp.attackId, attackInstance: fp.attackInstance, dead: false,
+    };
+    this.afterimages.push(a);
+    this.itemScript(a, true, art.scale);
+  }
+
+  /**
    * The item's command script (it/itanimlist.c it_802799E4): wait, hitboxes, damage changes, removal.
    * The run at spawn (Item_80268E5C) starts from timer 0; later ones count the timer down first.
+   * Item hitboxes are tested at their size times the item's scale (lbColl_8000805C: x43_b1 is never set).
    */
-  private itemScript(p: Projectile, first = false): void {
+  private itemScript(p: Pick<Projectile, 'script' | 'hitboxes' | 'attackId'>, first = false, scale = 1): void {
     const s = p.script;
     if (!s) return;
     if (!first) s.timer -= 1;
@@ -754,7 +778,7 @@ export class Engine implements EngineApi {
           const h = p.hitboxes[c.id & 3];
           if (!h.active || h.group !== c.group) { h.group = c.group; h.active = true; h.fresh = true; h.victims = new Set(); h.tipVictims = new Set(); }
           h.bone = 0; h.count = c.damage; h.damage = f(c.damage * staleMultiplier(this.fighter, p.attackId, this.c));
-          h.size = c.size; h.offset[0] = c.offset[0]; h.offset[1] = c.offset[1]; h.offset[2] = c.offset[2];
+          h.size = f(c.size * scale); h.offset[0] = c.offset[0]; h.offset[1] = c.offset[1]; h.offset[2] = c.offset[2];
           h.angle = c.angle; h.kbg = c.kbg; h.wkb = c.wkb; h.bkb = c.bkb; h.element = c.element; h.sfxLevel = c.sfxLevel; h.sfxKind = c.sfxKind;
           h.ground = !!c.ground; h.air = !!c.air; h.fighters = !!c.fighters;
           break;
@@ -774,6 +798,22 @@ export class Engine implements EngineApi {
       p.facing = p.vx > 0 ? 1 : -1;
       this.itemScript(p);
     }
+    // itFoxillusion_UnkMotion0/1/2_Anim: gone once the fighter leaves the side special
+    // (ftFx_SpecialS_CheckGhostRemove); otherwise it hits for its lifetime, then fades without a hitbox.
+    const art = this.data.illusion, msid = this.fighter.motionId;
+    for (const a of this.afterimages) {
+      if (a.age === 0 || a.dead) continue;
+      this.itemScript(a, false, art?.scale);
+      if (!art || msid < FX_SPECIAL_S_FIRST || msid > FX_SPECIAL_S_LAST) { a.dead = true; continue; }
+      a.timer -= 1;
+      if (a.timer > 0) continue;
+      if (a.state === 2) { a.dead = true; continue; }
+      // it_8029D798: the fading state, with its own script (it clears the hitbox).
+      a.state = 2;
+      a.timer = art.endLifetime;
+      a.script = { cmds: art.states[2] ?? [], pc: 0, timer: 0 };
+      this.itemScript(a, true, art.scale);
+    }
   }
 
   /** Items' physics (priority 4): move, age, and go when the lifetime is over or they dealt damage. */
@@ -788,6 +828,17 @@ export class Engine implements EngineApi {
       if (++p.age < p.lifetime && !p.dead) list[n++] = p;
     }
     list.length = n;
+    // itFoxillusion_Phys: the afterimage sits on the trail one frame behind the fighter
+    // (ghostEffectPos[1]), turned like him then; fading, it stays where it is.
+    const g = this.fighter.ghosts, rot = this.fighter.ghostRot, imgs = this.afterimages;
+    n = 0;
+    for (const a of imgs) {
+      if (a.dead) continue;
+      if (a.state !== 2 && g.length >= 4) { a.x = g[2]; a.y = g[3]; a.rotX = rot[1] ?? 0; }
+      a.age++;
+      imgs[n++] = a;
+    }
+    imgs.length = n;
   }
 
   // ------------------------------------------------------------------ hitboxes (priority 9)
@@ -816,6 +867,20 @@ export class Engine implements EngineApi {
           // R = Ry * Rx (no Z rotation) applied to the offset.
           const x1 = ox, y1 = cX * oy - sX * oz, z1 = sX * oy + cX * oz;
           h.pos3[0] = f(p.x + cY * x1 + sY * z1); h.pos3[1] = f(p.y + y1); h.pos3[2] = f(-sY * x1 + cY * z1);
+        });
+      }
+    }
+    const scale = this.data.illusion?.scale ?? 1;
+    for (const a of this.afterimages) {
+      // The afterimage's joint: yaw by its facing, pitch by its X rotation, scaled by the item's scale.
+      const ry = Math.PI / 2 * a.facing;
+      const sX = Math.sin(a.rotX), cX = Math.cos(a.rotX), sY = Math.sin(ry), cY = Math.cos(ry);
+      for (const h of a.hitboxes) {
+        if (!h.active) continue;
+        advanceHitbox(h, () => {
+          const ox = h.offset[0] * scale, oy = h.offset[1] * scale, oz = h.offset[2] * scale;
+          const x1 = ox, y1 = cX * oy - sX * oz, z1 = sX * oy + cX * oz;
+          h.pos3[0] = f(a.x + cY * x1 + sY * z1); h.pos3[1] = f(a.y + y1); h.pos3[2] = f(-sY * x1 + cY * z1);
         });
       }
     }

@@ -310,3 +310,40 @@ test('sandbag: hits add percent, "no damage" keeps 0% and knocks back as at 0%, 
   console.log(`      after KO: ${f.motionName} at (${f.pos.x.toFixed(1)}, ${f.pos.y.toFixed(1)}), ${f.percent}%`);
   assert(f.percent === 0 && Math.abs(f.pos.x - (dmg.a.fighter.pos.x + 22)) < 1 && f.motionName === 'Fall', 'respawn');
 }, true);
+
+test("illusion: the dash's afterimage item carries the hit, from the ground and the air", async (disc) => {
+  const { foxData, sandbagData, finalDestination, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { World } = await import('../src/engine/world');
+  const fox = await foxData(disc), sb = await sandbagData(disc);
+  const art = fox.illusion;
+  assert(!!art && art.states.length === 3, 'afterimage item imported');
+  const first = (s: number) => art!.states[s].find((c) => c.op === 'hitbox') as { damage: number; angle: number; kbg: number } | undefined;
+  console.log(`      item: lifetime ${art!.lifetime} + ${art!.endLifetime}, scale ${art!.scale}; ground ${JSON.stringify(first(0))}; air ${JSON.stringify(first(1))}`);
+  const dash = (steps: Array<[number, Parameters<typeof pad>[0]]>, gap: number) => {
+    const w = new World(), st = finalDestination();
+    const a = w.add(new Engine(fox)), b = w.add(new Engine(sb));
+    w.setStage(st);
+    a.spawnGrounded(0, st.segments[0], 1);
+    b.spawnGrounded(gap, st.segments[0], -1);
+    for (let i = 0; i < 5; i++) w.step([pad()]);
+    let foxHitlag = false, hitAt = '', maxItems = 0, itemsAfter = -1;
+    for (const [n, p] of [...steps, [80, {}]] as Array<[number, Parameters<typeof pad>[0]]>) for (let i = 0; i < n; i++) {
+      const before = b.fighter.percent;
+      w.step([pad(p)]);
+      foxHitlag ||= a.fighter.hitlag > 0;
+      maxItems = Math.max(maxItems, a.afterimages.length);
+      if (!hitAt && b.fighter.percent !== before) hitAt = `${a.fighter.motionName} ${b.fighter.percent}% ${b.fighter.motionName} kb ${b.fighter.kbVel.x.toFixed(2)},${b.fighter.kbVel.y.toFixed(2)}`;
+      if (a.fighter.motionId < 347 || a.fighter.motionId > 352) itemsAfter = Math.max(itemsAfter, a.afterimages.length);
+    }
+    return { hitAt, foxHitlag, maxItems, itemsAfter, percent: b.fighter.percent };
+  };
+  const ground = dash([[1, { sx: 127, buttons: 'B' }]], 30);
+  const air = dash([[1, { buttons: 'X' }], [4, {}], [1, { sx: 127, buttons: 'B' }]], 30);
+  console.log(`      ground: ${ground.hitAt || 'no hit'}; air: ${air.hitAt || 'no hit'}`);
+  for (const [name, r] of [['ground', ground], ['air', air]] as const) {
+    assert(r.percent === 7, `${name} Illusion should deal 7%, dealt ${r.percent}`);
+    assert(!r.foxHitlag, `${name}: the item's hit gives Fox no hitlag`);
+    assert(r.maxItems === 1 && r.itemsAfter <= 0, `${name}: one afterimage, gone after the move (${r.maxItems}, ${r.itemsAfter})`);
+  }
+}, true);

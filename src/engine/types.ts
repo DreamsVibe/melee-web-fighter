@@ -56,6 +56,11 @@ export interface CharacterData {
   constraints: ConstraintDef[];
   /** Fox's blaster shot: its item scripts (state 0 from the blaster). */
   laser: { lifetime: number; scale: number; states: ItemCmd[][] } | null;
+  /**
+   * The side special's afterimage item (Fox's Illusion, Falco's Phantasm): how long it can hit, how
+   * long it lingers after, its scale, and its item scripts (0 from the ground, 1 from the air, 2 after).
+   */
+  illusion: { lifetime: number; endLifetime: number; scale: number; states: ItemCmd[][] } | null;
 }
 
 export interface HurtboxDef { bone: number; height: number; grabbable: boolean; a: [number, number, number]; b: [number, number, number]; radius: number }
@@ -134,6 +139,27 @@ export interface Projectile {
   dead: boolean;
 }
 
+/**
+ * The side special's afterimage (it/kinds/itfoxillusion.c): an item that trails the fighter's dash
+ * one frame behind and carries the move's hitbox. Hitting doesn't remove it.
+ */
+export interface Afterimage {
+  x: number; y: number;
+  facing: number;
+  /** Its joint's X rotation (the fighter's TopN one frame behind). */
+  rotX: number;
+  /** Item state: 0 from the ground, 1 from the air, 2 fading (no hitbox). */
+  state: number;
+  /** Frames left in this state (xD44_lifeTimer). */
+  timer: number;
+  age: number;
+  hitboxes: HitboxState[];
+  script: { cmds: ItemCmd[]; pc: number; timer: number } | null;
+  /** The owner's attack when it appeared (for stale moves). */
+  attackId: number; attackInstance: number;
+  dead: boolean;
+}
+
 /** One hit registered this frame (dmg_log0 entries), resolved into damage in procCollResolve. */
 export interface DamageEntry {
   source: 'fighter' | 'item';
@@ -208,6 +234,8 @@ export interface Fighter {
   shielding: boolean;
   /** Recent positions for afterimages (Fox's Illusion keeps four), empty when none. */
   ghosts: number[];
+  /** TopN's X rotation at each of those positions (mv.fx.SpecialS.blendFrames). */
+  ghostRot: number[];
   // Input and its timers.
   input: FighterInput;
   hasPrevInput: boolean;
