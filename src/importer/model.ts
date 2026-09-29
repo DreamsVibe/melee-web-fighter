@@ -1,4 +1,5 @@
-// Extracts Fox's skeleton, skinned mesh and materials from the costume archive (PlFxNr.dat).
+// Extracts a model's skeleton, skinned mesh and materials: a fighter's costume archive (PlFxNr.dat),
+// or one of a stage's model parts (a joint tree in GrNLa.dat).
 // Follows melee-unlocked's native/Geometry.h, which follows HSD's JObj/DObj/MObj/PObj layout.
 import { Archive, HsdError } from './hsd';
 import { decodeTObj, type DecodedTexture } from './gx';
@@ -85,8 +86,8 @@ function directSize(t: Attr): number {
   return n * componentWidth(t.format);
 }
 
-export function extractModel(a: Archive): ExtractedModel {
-  const [, root] = a.rootEndingWith('_joint');
+/** The model under `root` (a JObj), by default the archive's `*_joint` root. */
+export function extractModel(a: Archive, root = a.rootEndingWith('_joint')[1]): ExtractedModel {
   const { joints, index } = readRig(a, root);
   const out: ExtractedModel = { joints, vertices: [], bones: [], weights: [], indices: [], batches: [], materials: [], textures: [] };
   const texIndex = new Map<number, number>();

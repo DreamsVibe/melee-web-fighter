@@ -3,7 +3,7 @@
 // shield bubble, the reflector, Firefox's flames and hit sparks. Nothing touches the page.
 import type { Engine } from '../engine/engine';
 import { shieldRadius } from '../engine/groundmoves';
-import type { View } from './view';
+import type { ViewLike } from './view';
 
 /** Item_UpdateRayAnimation: a shot's beam grows to `scale` × this many units. */
 const RAY_UNIT = 11.25;
@@ -22,7 +22,7 @@ export class EffectsLayer {
   }
 
   /** Draws this frame's effects; returns false (and leaves the canvas alone) when there are none. */
-  draw(e: Engine, view: View): boolean {
+  draw(e: Engine, view: ViewLike): boolean {
     const fp = e.fighter, name = fp.motionName;
     const fire = name.startsWith('SpecialHiHold') || name === 'SpecialHi' || name === 'SpecialAirHi';
     if (!e.projectiles.length && !fp.shielding && !fp.reflecting && !fire && !this.sparks.length) return false;

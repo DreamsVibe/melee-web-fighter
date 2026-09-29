@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Melee Web Fighter — Stages</title><link rel="stylesheet" href="ui.css">
+<style>
+  html, body { height: 100%; overflow: hidden; background: #05050f; }
+  /* Its own font: it moves to the end of the document (out of body) to sit over the game canvas. */
+  #menu { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; background: rgba(5, 5, 15, 0.72); font: 15px/1.5 system-ui, sans-serif; color: var(--fg); }
+  #menu[hidden] { display: none; }
+  .panel { width: min(720px, calc(100vw - 32px)); background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+  .panel h1 { margin: 0 0 4px; }
+  .stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 14px 0; }
+  .stages button { text-align: left; padding: 12px 14px; border-radius: 8px; }
+  .stages button b { display: block; font-size: 16px; }
+  .stages button span { font-size: 13px; color: var(--muted); }
+  .stages button.current { border-color: var(--accent); }
+  .stages button:disabled { opacity: 0.45; cursor: default; }
+  .stages button:not(:disabled):hover, .stages button:focus-visible { border-color: var(--accent); outline: none; }
+  .chars button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+</style></head>
+<body>
+<div id="menu" hidden>
+  <div class="panel" role="dialog" aria-labelledby="menuTitle">
+    <h1 id="menuTitle">Choose a stage</h1>
+    <p id="menuNote" class="muted" style="margin:0">Stages come from your own Melee disc, imported with the characters.</p>
+    <div id="stages" class="stages"></div>
+    <div class="row chars"><span>Play as</span><span id="chars" class="row" style="gap:6px"></span></div>
+    <p class="muted" style="margin:14px 0 0"><kbd>Esc</kbd> or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> opens and closes this menu.
+      Controls are the same as on a web page (<a href="options.html" target="_blank">settings</a>).</p>
+  </div>
+</div>
+<script src="content.js"></script>
+<script type="module" src="stage.js"></script>
+</body></html>

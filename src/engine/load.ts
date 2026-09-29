@@ -6,6 +6,19 @@ import { readSkeleton } from '../shared/modelfile';
 import { parseMove } from '../shared/move';
 import type { CharacterData, CompiledMove, Named } from './types';
 import { BEHAVIORS } from './behaviors';
+import { stageDir, type StageFile } from '../shared/stages';
+import type { StageData } from './stagetypes';
+
+/** A stage's collision, points and blast zones for the engine, from stages/<id>/stage.json. */
+export function loadStage(files: FileMap, id: string): { data: StageData; file: StageFile } | null {
+  const d = files.get(stageDir(id) + 'stage.json');
+  if (d === undefined) return null;
+  const file = JSON.parse(text(d)!) as StageFile;
+  const f = Math.fround;
+  // float32 like the game: a fighter integrated in float32 lines up exactly with a floor.
+  const segments = file.segments.map((s) => ({ ...s, x0: f(s.x0), y0: f(s.y0), x1: f(s.x1), y1: f(s.y1) }));
+  return { file, data: { segments, blast: file.blast, spawn: file.respawns[0] ?? file.spawns[0] ?? [0, 20] } };
+}
 
 export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'): CharacterData {
   const need = (p: string) => {

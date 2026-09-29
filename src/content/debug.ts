@@ -3,7 +3,7 @@
 import type { PadState } from '../engine/pad';
 import { BTN } from '../engine/pad';
 import { SegKind, type Segment } from '../engine/stagetypes';
-import type { View } from './view';
+import type { ViewLike } from './view';
 
 export class DebugLayer {
   readonly canvas = new OffscreenCanvas(1, 1);
@@ -51,7 +51,7 @@ export class DebugLayer {
   }
 
   /** Platforms cyan, solids orange, ledges as dots. */
-  drawStage(ctx: OffscreenCanvasRenderingContext2D, segs: Segment[], view: View): void {
+  drawStage(ctx: OffscreenCanvasRenderingContext2D, segs: Segment[], view: ViewLike): void {
     ctx.save();
     ctx.lineWidth = 2;
     for (const s of segs) {

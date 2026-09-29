@@ -19,6 +19,7 @@ const entries = {
   import: 'src/importer/import.ts',
   bridge: 'src/bridge/bridge.ts',
   options: 'src/options/options.ts',
+  stage: 'src/stage/stage-page.ts',
 };
 
 function copyStatic() {

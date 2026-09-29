@@ -52,11 +52,13 @@ async function init(): Promise<void> {
   const imported = asText(await getFile('characters/fox/character.json'));
   const current = imported && (JSON.parse(imported).formatVersion ?? 0) >= FORMAT_VERSION;
   const hasFalco = !!(await getFile('characters/falco/character.json'));
+  const hasStages = !!(await getFile('stages/fd/stage.json'));
   $('importState').innerHTML = !imported
     ? '<b>Nothing is imported yet:</b> <a href="import.html">import your Melee disc</a> first.'
     : !current ? '<b>This version needs your disc again</b> (for ledges): <a href="import.html">import it</a>.'
-      : !hasFalco ? '<b>Import your disc again to add Falco</b>: <a href="import.html">import it</a>.'
-        : 'Fox, Falco and Sandbag are imported. <a href="import.html">Re-import or preview</a>.';
+      : !hasFalco || !hasStages ? '<b>Import your disc again to add Falco and the stages</b>: <a href="import.html">import it</a>.'
+        : 'Fox, Falco, Sandbag and the stages are imported. <a href="import.html">Re-import or preview</a>.';
+  $('openStages').onclick = () => void chrome.tabs.create({ url: chrome.runtime.getURL('stage.html') });
 
   // --- character
   const character = $<HTMLSelectElement>('character');

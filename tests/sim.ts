@@ -27,6 +27,14 @@ export async function falcoData(disc: Disc): Promise<CharacterData> {
   return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/falco/');
 }
 
+/** A stage converted from the disc (stages/<id>/). */
+export async function stageData(disc: Disc, id: string) {
+  const { loadStage } = await import('../src/engine/load');
+  const s = loadStage(effectiveFiles(new Map(await foxFolder(disc))), id);
+  if (!s) throw new Error(`stage ${id} was not converted`);
+  return s;
+}
+
 export async function sandbagData(disc: Disc): Promise<CharacterData> {
   return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/sandbag/');
 }

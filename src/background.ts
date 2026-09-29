@@ -1,4 +1,5 @@
-// Service worker: toggles the overlay in the active tab and runs the GameCube adapter helper.
+// Service worker: toggles the overlay in the active tab, opens the stage select, and runs the GameCube
+// adapter helper.
 import { MSG } from './shared/messages';
 import { ADAPTER_PORT, NATIVE_HOST, type AdapterMessage, type AdapterState } from './shared/adapter-link';
 
@@ -14,8 +15,18 @@ async function toggle(tab?: chrome.tabs.Tab): Promise<void> {
   }
 }
 
+/**
+ * The stage-select shortcut: a stage page in view opens its menu; anywhere else, a new stage page opens
+ * on the menu. (Asking the pages avoids needing the tabs permission to read tab URLs.)
+ */
+async function chooseStage(): Promise<void> {
+  const shown = await chrome.runtime.sendMessage({ type: MSG.stageMenu }).catch(() => false);
+  if (!shown) await chrome.tabs.create({ url: chrome.runtime.getURL('stage.html') });
+}
+
 chrome.action.onClicked.addListener((tab) => void toggle(tab));
 chrome.commands.onCommand.addListener(async (command) => {
+  if (command === 'choose-stage') { await chooseStage(); return; }
   if (command !== 'toggle-fighter') return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await toggle(tab);

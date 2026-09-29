@@ -56,21 +56,27 @@ export interface CharacterInfo {
 }
 
 export function loadModel(files: FileMap, dir: string): { model: FighterModel; info: CharacterInfo } {
+  const d = files.get(dir + 'character.json');
+  if (d === undefined) throw new Error(`The character folder is missing ${dir}character.json. Re-import your disc.`);
+  const info = JSON.parse(text(d)!) as CharacterInfo;
+  return { model: loadModelDir(files, dir, info.hiddenParts), info };
+}
+
+/** A model folder (skeleton, mesh, materials and their textures), a character's or a stage part's. */
+export function loadModelDir(files: FileMap, dir: string, hiddenParts: number[] = []): FighterModel {
   const need = (p: string) => {
     const d = files.get(dir + p);
-    if (d === undefined) throw new Error(`The character folder is missing ${dir + p}. Re-import your disc.`);
+    if (d === undefined) throw new Error(`The folder is missing ${dir + p}. Re-import your disc.`);
     return d;
   };
-  const info = JSON.parse(text(need('character.json'))!) as CharacterInfo;
-  const materials = JSON.parse(text(need('model/materials.json'))!) as MaterialDef[];
+  const materials = JSON.parse(text(need('model/materials.json') ?? '')!) as MaterialDef[];
   const textures = new Map<string, TextureData>();
   for (const m of materials) if (m.texture && !textures.has(m.texture)) textures.set(m.texture, readTexture(bytes(need(m.texture))!));
-  const model: FighterModel = {
+  return {
     joints: readSkeleton(bytes(need('model/skeleton.skel'))!),
     mesh: readMesh(bytes(need('model/mesh.mesh'))!),
     materials,
     textures,
-    hidden: new Set(info.hiddenParts),
+    hidden: new Set(hiddenParts),
   };
-  return { model, info };
 }

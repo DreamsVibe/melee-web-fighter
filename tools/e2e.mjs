@@ -8,7 +8,8 @@
 //                                             SCENARIO=ledge with PAGE=tests/pages/ledge.html to catch,
 //                                             hang from and climb a ledge,
 //                                             RELOAD=1 to reload the extension with the fighter on
-//                                             the page and bring the new version in)
+//                                             the page and bring the new version in,
+//                                             SCENARIO=stage for the stage page and its menu)
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync, readdirSync, cpSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -101,6 +102,35 @@ try {
   const sw = targets.find((t) => t.type === 'service_worker' && t.url.includes(extId));
   const { sessionId: swS } = await send('Target.attachToTarget', { targetId: sw.targetId, flatten: true });
   await send('Runtime.enable', {}, swS);
+  if (process.env.SCENARIO === 'stage') {
+    // The stage page: its menu, Final Destination from the disc, a jump, the menu again (Esc, and the
+    // shortcut's message), and the shortcut itself registered.
+    const st = await attach(`chrome-extension://${extId}/stage.html`);
+    await sleep(1500);
+    await shot(st.sessionId, 'e2e-stage-menu.png');
+    log('menu:', await evaluate(st.sessionId, `[...document.querySelectorAll('.stages button')].map((b) => b.textContent + (b.disabled ? ' (off)' : '')).join(' | ')`));
+    await evaluate(st.sessionId, `[...document.querySelectorAll('.stages button')].find((b) => !b.disabled).click(); 1`);
+    // Dev builds expose the game: where the fighters are just after they appear.
+    for (const ms of [150, 400, 1500]) {
+      await sleep(ms);
+      log('fighters:', await evaluate(st.sessionId, `(() => { const g = window.__mwfStageGame; return g ? g.world.fighters.map((f) => f.data.id + ' ' + f.fighter.motionName + ' (' + f.fighter.pos.x.toFixed(1) + ', ' + f.fighter.pos.y.toFixed(1) + ')').join(' | ') : 'production build'; })()`));
+    }
+    await sleep(450);
+    const skey = async (code, type) => send('Input.dispatchKeyEvent', { type, code, key: code === 'Escape' ? 'Escape' : code.replace('Key', '').toLowerCase(), windowsVirtualKeyCode: code === 'Escape' ? 27 : code === 'F9' ? 120 : code.startsWith('Key') ? code.charCodeAt(3) : 0 }, st.sessionId);
+    await skey('F9', 'keyDown'); await skey('F9', 'keyUp');
+    await sleep(800);
+    await shot(st.sessionId, 'e2e-stage-play.png');
+    await skey('KeyD', 'keyDown'); await sleep(500); await skey('KeyD', 'keyUp');
+    await skey('Space', 'keyDown'); await sleep(60); await skey('Space', 'keyUp');
+    await sleep(300);
+    await shot(st.sessionId, 'e2e-stage-move.png');
+    await skey('Escape', 'keyDown'); await skey('Escape', 'keyUp');
+    await sleep(500);
+    await shot(st.sessionId, 'e2e-stage-esc.png');
+    log('menu open after Esc:', await evaluate(st.sessionId, `!document.getElementById('menu').hidden`));
+    log('shortcut:', await evaluate(swS, `chrome.commands.getAll().then((c) => c.map((x) => x.name + '=' + (x.shortcut || '-')).join(', '))`));
+    chrome.kill(); server.close(); process.exit(0);
+  }
   const tabId = await evaluate(swS, `chrome.tabs.query({}).then((t) => t.find((x) => (x.url || '').startsWith('http://127.0.0.1')).id)`);
   log('tab', tabId);
   // The ledge scenario needs the way clear: no Sandbag next to the fighter.

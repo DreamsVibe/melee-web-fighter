@@ -202,6 +202,11 @@ Single-weight envelopes (weight 1) use the bone matrix directly.
   the core except the ECB bone list and TransN index, which come from character.json.
 * Script timing (`script.ts`) is ftAction_80073240's: timer decremented by the animation rate,
   `frame N` = N - frame_count, `wait_anim_end` waits for the animation to loop to frame 0.
+* The model's Y rotation (`ftPartSetRotY(fp, 0, π/2 × facing)`) is set in `Fighter_ChangeMotionState`
+  only, not every frame (`Fighter.rootRotY`). A facing that flips during a state (Turn, TurnRun, the
+  back roll, a reversing aerial) leaves the model as it was, and the animation shows the turn; the
+  reflector's turn spins it 180° ÷ `reflector_turn_frames` a frame. Re-deriving it from the facing each
+  frame made turnarounds turn twice.
 * Animation timing uses the HSD AObj rules: a new animation's first interpret does not advance,
   loops wrap with fmod, non-looping ones stop at end_frame (that is IsFramesRemaining).
 * ECB: `collision.ts loadEcb` is mpColl_LoadECB_JObj (flags 6 in the air, 5 on the ground) over
@@ -479,6 +484,58 @@ nudge is added to the position before self velocity in `procUpdate`.
 * Hit sparks and the hitlag shake are 2D stand-ins drawn over the page.
 * On a page, Sandbag respawns beside Fox at 0% once it is past the screen edge by 12 units on any
   side. In the game it can't be KO'd.
+
+## Stages
+
+Melee's stages from the disc, on the extension's own stage page (`stage.html`), in place of a web page.
+Importer: `src/importer/stage-convert.ts`; engine loader: `loadStage` in `src/engine/load.ts`; page:
+`StageArena` in `src/content/arena.ts` and `src/stage/stage-page.ts`.
+
+* **Files.** `Gr*.dat` roots: `coll_data` (`MapCollData`, `mp/types.h`), `map_head`, `grGroundParam`.
+  Final Destination is `GrNLa.dat`.
+* **Collision** (`MapCollData`): `+0` vertices (`Vec2`), `+8` lines (`MapLine`, 0x10 bytes: vertex
+  indices, neighbour links, `hi_flags`, `lo_flags`), `+0x10` line ranges for floor, ceiling, right
+  wall, left wall, dynamic, `+0x24` collision joints (`MapJoint`, 0x28: their own ranges; lines of a
+  moving part share one, which becomes the segment `group`). `lo_flags` bit 8 = pass-through
+  platform, bit 9 = ledge line. A ledge line's ends are ledges where no other floor continues it
+  (Final Destination's floor is three lines; only the outer ends are ledges). Right walls face right
+  (`SegKind.WallRight`), left walls face left. Stored in `stage.json`, floors left to right, walls
+  from the top point down.
+* **General points** (`map_head +0`: 0xC-byte entries `{joint tree, pairs, count}`; pairs are
+  `s16` depth-first joint index + point id; `Ground_801C1E94`, `Ground_801C2D24`): ids 0-3 player
+  starts, 4-7 revival points, 0x94 camera centre, 0x95/0x96 camera range, 0x97/0x98 blast zone
+  corners (`Ground_801C3BB4`; without them the game falls back to ±250, -100, 200). Positions are the
+  joints' world translations in the rest pose. Final Destination: starts (±60, 10) and (±20, 10), blast
+  zones ±246 / -140 / 188, camera range ±170 / -80 / 114.
+* **Model** (`map_head +8`: 0x34-byte gobj descriptions, the joint tree first): Final Destination has
+  10 parts: the stage (part 3), two floor strips, and backgrounds reaching z = -15000 (the warp
+  tunnel). Each part is a folder like a character's (`parts/<n>/model/…`, `textures/`), drawn in its
+  rest pose. Part 0 has joints but no geometry.
+* **Engine.** Walls and ceilings may now slant (Final Destination's underside): a wall line's x at the
+  ECB side point's height, a ceiling's y at the fighter's x. A side point outside the wall at last
+  frame's height and inside it at this one goes back out, where "the wall" at last frame's height is
+  the nearest line of the same kind and group: sliding up a slant and passing the corner between two
+  lines both work, which a single-line crossing test missed. Floors are still flat (Final
+  Destination's and Battlefield's are). `setStage` with the same stage is a no-op, and a line's
+  counterpart in a new stage is found by its place among its group's lines (a page element has one
+  line per group, a stage's collision joint many: the first match used to slide fighters along).
+* **Camera.** A perspective camera looking straight at z = 0 (30° vertical field of view), so the
+  fighting plane maps linearly to the screen and the backgrounds get depth. It frames the fighters
+  with a margin, at least ±55 units tall, keeps its centre inside the camera range, and eases toward
+  that each frame.
+* **The page.** `stage.html` loads `content.js` (which, on an extension page, only exposes `Game`) so
+  the game ships once; `stage.js` is the menu. Alt+Shift+M (`choose-stage` command) asks the stage
+  page in view to toggle its menu, or opens a new one. The menu pauses the game and takes the keyboard.
+
+### Deviations (stages)
+
+* Not Melee's camera: no tilt, no pan/zoom rules from `grGroundParam`; ours is a simple follow camera.
+* Stage parts stand still (no joint or texture animation), and no particles: Final Destination's
+  background doesn't morph.
+* Floors must be flat; the other legal stages need slopes (Yoshi's Story), moving platforms
+  (Fountain of Dreams, Randall) or transformations (Pokémon Stadium).
+* Sandbag, which can't be KO'd in the game's VS mode, respawns at revival point 1 after leaving the
+  blast zones; the player at revival point 0.
 
 ## Ledges
 

@@ -209,6 +209,92 @@ test('engine: Falco is his own character (jumpsquat, jump height, laser sound)',
   assert(falco.soundIds.get('falco_falcoLaser') === 100099, 'Falco laser sound imported');
 }, true);
 
+test('stages: Final Destination from the disc (spawns, blast zones, ledges, slanted walls, ceiling)', async (disc) => {
+  const { foxData, stageData, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { data: stage, file } = await stageData(disc, 'fd');
+  const fox = await foxData(disc);
+  assert(file.spawns.length === 4 && file.spawns[0][0] === -60 && file.spawns[0][1] === 10, `spawns ${JSON.stringify(file.spawns)}`);
+  assert(JSON.stringify(file.blast) === '[-246,246,-140,188]', `blast ${file.blast}`);
+  const ends = stage.segments.filter((s) => s.ledges).map((s) => [s.ledges & 1 ? s.x0 : null, s.ledges & 2 ? s.x1 : null]).flat().filter((x) => x !== null);
+  assert(ends.length === 2 && ends.every((x) => Math.abs(Math.abs(x!) - 85.5657) < 1e-3), `ledges at ${ends}`);
+  const run = (x: number, y: number, facing: number, steps: Array<[number, Parameters<typeof pad>[0]]>) => {
+    const e = new Engine(fox);
+    e.setStage(stage);
+    e.spawn(x, y, facing);
+    const seen = new Set<string>();
+    for (const [n, p] of steps) for (let i = 0; i < n; i++) { e.step(pad(p)); seen.add(e.fighter.motionName); }
+    return { e, seen };
+  };
+  const land = run(file.spawns[0][0], file.spawns[0][1], 1, [[60, {}]]);
+  assert(land.e.fighter.motionName === 'Wait' && land.e.fighter.pos.y === 0, `spawn: ${land.e.fighter.motionName} at ${land.e.fighter.pos.y}`);
+  // The game hands the stage over every frame; fighters standing on it stay put (all of Final
+  // Destination's lines share one collision group).
+  const { World } = await import('../src/engine/world');
+  const { sandbagData } = await import('./sim');
+  const world = new World(), p1 = world.add(new Engine(fox)), p2 = world.add(new Engine(await sandbagData(disc)));
+  world.setStage(stage);
+  p1.spawn(file.spawns[0][0], file.spawns[0][1], 1); p2.spawn(file.spawns[1][0], file.spawns[1][1], -1);
+  for (let i = 0; i < 120; i++) { world.setStage(stage); world.step([pad()]); }
+  assert(p1.fighter.pos.x === -60 && p2.fighter.pos.x === 60, `standing fighters drifted to ${p1.fighter.pos.x}, ${p2.fighter.pos.x}`);
+  const ledge = run(92, 6, -1, [[40, {}]]);
+  assert(ledge.seen.has('CliffCatch'), `ledge: ${[...ledge.seen]}`);
+  // Under the lip, double jumping in toward the stage: the slanted right wall (65.8 at y -31, 53.8
+  // at -54) stops his left side on every frame.
+  const { SegKind } = await import('../src/engine/stagetypes');
+  const walls = stage.segments.filter((s) => s.kind === SegKind.WallRight);
+  const wallAt = (y: number) => {
+    for (const s of walls) if (y <= s.y0 && y >= s.y1) return s.y0 === s.y1 ? s.x0 : s.x1 + (s.x0 - s.x1) * (y - s.y1) / (s.y0 - s.y1);
+    return null;
+  };
+  const w = new Engine(fox); w.setStage(stage); w.spawn(76, -34, -1);
+  let inside = 0, touched = 0, wx = 0;
+  for (let i = 0; i < 40; i++) {
+    w.step(pad({ sx: -127, buttons: i === 0 ? 'X' : '' }));
+    const fp = w.fighter, x = wallAt(fp.pos.y + fp.ecb.sideY);
+    if (x !== null && fp.pos.x + fp.ecb.left < x - 0.01) inside++;
+    if (fp.envFlags & 2) touched++;
+    wx = fp.pos.x;
+  }
+  assert(!inside && touched >= 3, `slanted wall: inside on ${inside} frames, touching on ${touched}`);
+  // Straight up from under the middle: the underside (y -55.4) stops him.
+  const ceil = run(0, -90, 1, [[1, { sy: 127, buttons: 'B' }], [70, { sy: 127 }]]);
+  let top = -Infinity;
+  const e = new Engine(fox); e.setStage(stage); e.spawn(0, -90, 1);
+  e.step(pad({ sy: 127, buttons: 'B' }));
+  for (let i = 0; i < 80; i++) { e.step(pad({ sy: 127 })); top = Math.max(top, e.fighter.pos.y + e.fighter.ecb.top); }
+  console.log(`      wall stop x ${wx.toFixed(2)}; highest ECB top under the stage ${top.toFixed(2)}; ${[...ceil.seen].slice(-3).join(' > ')}`);
+  assert(top <= -55.3, `went through the underside: ECB top reached ${top}`);
+}, true);
+
+test('turnarounds turn the body once (standing, dash back, run), for Fox and Falco', async (disc) => {
+  const { foxData, falcoData, newEngine, pad } = await import('./sim');
+  type P = Parameters<typeof pad>[0];
+  const failures: string[] = [];
+  for (const data of [await foxData(disc), await falcoData(disc)]) {
+    // Which way the body points: the hip's forward (local Z) axis in world space. The facing flips
+    // partway through a turn; the model's rotation only follows on the next motion change, so the
+    // animation's own turn is all that shows (Fighter_ChangeMotionState's ftPartSetRotY).
+    for (const [name, steps] of [
+      ['standing turn', [[1, { sx: -40 }], [20, {}]]], ['dash back', [[1, { sx: -127 }], [16, {}]]],
+      ['run turnaround', [[20, { sx: 127 }], [30, { sx: -127 }], [20, {}]]],
+    ] as Array<[string, Array<[number, P]>]>) {
+      const e = newEngine(data);
+      for (let i = 0; i < 10; i++) e.step(pad());
+      const dirs: number[] = [];
+      for (const [n, p] of steps) for (let i = 0; i < n; i++) {
+        e.step(pad(p));
+        e.updatePose();
+        const fx = e.fighter.world[data.parts[4] * 12 + 2];
+        if (Math.abs(fx) > 0.3) dirs.push(Math.sign(fx));
+      }
+      const changes = dirs.filter((d, i) => i && d !== dirs[i - 1]).length;
+      if (changes !== 1 || dirs[dirs.length - 1] !== e.fighter.facing) failures.push(`${data.name} ${name}: body changed direction ${changes} times, ends ${dirs[dirs.length - 1]} facing ${e.fighter.facing}`);
+    }
+  }
+  assert(!failures.length, failures.join('\n      '));
+}, true);
+
 test('ledges: catch facing the stage, hang, every getup, let go, time out (Fox and Falco)', async (disc) => {
   const { foxData, falcoData, finalDestination, pad } = await import('./sim');
   const { Engine } = await import('../src/engine/engine');

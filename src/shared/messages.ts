@@ -10,4 +10,6 @@ export const MSG = {
   /** bridge → content: an override or setting changed; reload these paths. */
   changed: 'mwf:changed',
   settings: 'mwf:settings',
+  /** worker → stage page: the stage-select shortcut was pressed while it's the active tab. */
+  stageMenu: 'mwf:stage-menu',
 } as const;

@@ -12,6 +12,11 @@ import { convertMoves, FOX_BEHAVIORS } from './moves-convert';
 import { readAttributes, readCommon, readExtras, readHurtboxes, readLaser, tidy } from './data-convert';
 import { FOX_SUBMOTIONS, SANDBAG_SUBMOTIONS } from './submotions';
 import { FOX_SPECIAL_FIELDS, SANDBAG_SPECIAL_FIELDS, type Field } from '../shared/attributes';
+import { STAGE_LIST } from '../shared/stages';
+import { convertStage } from './stage-convert';
+
+/** The stages converted so far. */
+export const STAGES = STAGE_LIST.filter((s) => s.ready);
 
 export type Progress = (fraction: number, text: string) => void;
 export type Log = (line: string) => void;
@@ -82,6 +87,7 @@ export const CHAR_DIR = charDir(FOX);
 export const SOURCE_FILES = [
   ...CHARACTERS.flatMap((c) => [`Pl${c.code}.dat`, `Pl${c.code}Nr.dat`, `Pl${c.code}AJ.dat`]), 'PlCo.dat',
   'audio/us/smash2.sem', 'audio/us/main.ssm', ...CHARACTERS.flatMap((c) => (c.bank ? [c.bank.file] : [])),
+  ...STAGES.map((s) => s.file),
 ];
 export type Sources = Map<string, Uint8Array>;
 
@@ -172,6 +178,8 @@ export async function buildFolder(disc: Disc, progress: Progress, log: Log): Pro
     progress(0.25 + 0.35 * (i / chars.length), `Converting ${spec.name}'s model and animations…`);
     files.push(...convertModel(sources, spec, log), ...convertAnims(sources, spec, actions, log));
   });
+  progress(0.6, 'Converting stages…');
+  for (const spec of STAGES) files.push(...convertStage(sources.get(spec.file)!, spec, log));
   progress(0.65, 'Converting sounds…');
   const sounds = convertSounds(sources, chars.map(({ spec, archive, actions }) => ({ id: spec.id, archive, actions, dir: charDir(spec), bank: spec.bank })), COMMON_DIR, log);
   files.push(...sounds.files);

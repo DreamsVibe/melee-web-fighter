@@ -82,6 +82,18 @@ push away or down to let go. Over 100% the getups are the slow ones, and after a
 hanging you drop. Hold down to fall past a ledge without catching it. Text lines have no ledges,
 like Melee's platforms.
 
+## Stages
+
+Press **Alt+Shift+M** anywhere (or use **Play on a Melee stage** in the settings) to open the stage
+select. Choosing a stage opens it in its own tab, with your fighter and Sandbag on their starting
+points, the stage's blast zones, and a camera that follows the fight. **Esc** or Alt+Shift+M brings
+the menu back (the game pauses), and it lets you switch between Fox and Falco too.
+
+**Final Destination** is the first stage: its collision (including the slanted underside and both
+ledges), spawn points, blast zones and model all come from your disc, like the characters. Battlefield,
+Dream Land, Yoshi's Story, Fountain of Dreams and Pokémon Stadium are listed and come later. If the
+menu says to import your disc again, your import is from before stages existed.
+
 ## Using a GameCube controller (Windows, optional)
 
 A regular gamepad or the keyboard works right away. The official GameCube adapter (or a Mayflash

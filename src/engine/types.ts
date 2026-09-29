@@ -204,6 +204,12 @@ export interface Fighter {
   rootDelta: { x: number; y: number; z: number };
   /** ftPartSetRotX on XRotN (Firefox points Fox along his flight), NaN when the animation's own. */
   xRot: number;
+  /**
+   * The model's Y rotation (ftPartSetRotY on TopN). Fighter_ChangeMotionState sets it from the facing;
+   * a facing that flips during a state (Turn, TurnRun, back roll) leaves it, and the animation does the
+   * turning. The reflector's turn spins it by hand.
+   */
+  rootRotY: number;
   // Shield (shield_health, lightshield_amount, x221B_b0).
   shieldHealth: number;
   lightshield: number;

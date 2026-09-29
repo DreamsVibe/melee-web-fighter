@@ -10,7 +10,8 @@
   "permissions": ["activeTab", "scripting", "storage", "unlimitedStorage", "nativeMessaging"],
   "host_permissions": ["https://api.github.com/*", "https://github.com/*", "https://release-assets.githubusercontent.com/*", "https://objects.githubusercontent.com/*"],
   "commands": {
-    "toggle-fighter": { "suggested_key": { "default": "Alt+M" }, "description": "Drop Fox onto the page / remove him" }
+    "toggle-fighter": { "suggested_key": { "default": "Alt+M" }, "description": "Drop Fox onto the page / remove him" },
+    "choose-stage": { "suggested_key": { "default": "Alt+Shift+M" }, "description": "Choose a Melee stage to play on" }
   },
   "options_page": "options.html",
   "web_accessible_resources": [

@@ -69,35 +69,72 @@ function floorAt(stage: StageData, x: number, y: number, prefer: Segment | null)
   return null;
 }
 
-/** Walls first (ECB side points against vertical segments), shared by air and ground. */
-function collideWalls(fp: Fighter, stage: StageData, px: number, py: number): void {
-  const e = fp.ecb, pe = fp.prevEcb;
-  for (const s of stage.segments) {
-    if (s.kind === SegKind.WallLeft) {
-      // Left face of a block: stops the fighter's right side moving right.
-      const prevR = px + pe.right, curR = fp.pos.x + e.right, sy = fp.pos.y + e.sideY;
-      if (prevR <= s.x0 + EPS && curR > s.x0 && sy <= s.y0 && sy >= s.y1) {
-        fp.pos.x = f(s.x0 - e.right);
-        fp.envFlags |= ENV.LeftWall;
-      }
-    } else if (s.kind === SegKind.WallRight) {
-      const prevL = px + pe.left, curL = fp.pos.x + e.left, sy = fp.pos.y + e.sideY;
-      if (prevL >= s.x0 - EPS && curL < s.x0 && sy <= s.y0 && sy >= s.y1) {
-        fp.pos.x = f(s.x0 - e.left);
-        fp.envFlags |= ENV.RightWall;
-      }
-    }
-  }
-  void py;
+/** A wall's x at height y (walls run from their top point (x0, y0) down to (x1, y1)); null outside it. */
+function wallX(s: Segment, y: number): number | null {
+  if (y > s.y0 || y < s.y1) return null;
+  return s.y0 === s.y1 ? s.x0 : s.x1 + (s.x0 - s.x1) * (y - s.y1) / (s.y0 - s.y1);
 }
 
+/**
+ * Where the wall that `s` belongs to was at height y: `s` itself, or the line of the same kind and
+ * group at that height nearest to it (the next line of a slanted or bent wall).
+ */
+function wallXNear(stage: StageData, s: Segment, y: number, near: number): number | null {
+  const own = wallX(s, y);
+  if (own !== null) return own;
+  let best: number | null = null;
+  for (const o of stage.segments) {
+    if (o.kind !== s.kind || o.group !== s.group) continue;
+    const x = wallX(o, y);
+    if (x !== null && (best === null || Math.abs(x - near) < Math.abs(best - near))) best = x;
+  }
+  return best;
+}
+
+/**
+ * Walls first (ECB side points against wall lines), shared by air and ground. Stage walls may slant
+ * (Final Destination's underside) and bend; page walls are vertical. A side point that was outside
+ * the wall at last frame's height and is inside it at this one goes back out, which also covers
+ * sliding up a slant or passing a corner between two of its lines.
+ */
+function collideWalls(fp: Fighter, stage: StageData, px: number, py: number): void {
+  const e = fp.ecb, pe = fp.prevEcb;
+  const sy = fp.pos.y + e.sideY, psy = py + pe.sideY;
+  for (const s of stage.segments) {
+    if (s.kind !== SegKind.WallLeft && s.kind !== SegKind.WallRight) continue;
+    const x = wallX(s, sy);
+    if (x === null) continue;
+    const prevX = wallXNear(stage, s, psy, x) ?? x;
+    if (s.kind === SegKind.WallLeft) {
+      // Left face of a block: stops the fighter's right side moving right.
+      if (px + pe.right <= prevX + EPS && fp.pos.x + e.right > x) {
+        fp.pos.x = f(x - e.right);
+        fp.envFlags |= ENV.LeftWall;
+      }
+    } else if (px + pe.left >= prevX - EPS && fp.pos.x + e.left < x) {
+      fp.pos.x = f(x - e.left);
+      fp.envFlags |= ENV.RightWall;
+    }
+  }
+}
+
+/** A ceiling's height at x (it may slant); null outside it. */
+function ceilingY(s: Segment, x: number): number | null {
+  if (x <= s.x0 || x >= s.x1) return null;
+  return s.y0 + (s.y1 - s.y0) * (x - s.x0) / (s.x1 - s.x0);
+}
+
+/** Ceilings (the ECB top): below the ceiling at last frame's x and above it now goes back under. */
 function collideCeiling(fp: Fighter, stage: StageData, px: number, py: number): boolean {
   const pe = fp.prevEcb, e = fp.ecb;
   for (const s of stage.segments) {
     if (s.kind !== SegKind.Ceiling) continue;
-    const prevTop = py + pe.top, curTop = fp.pos.y + e.top, x = fp.pos.x;
-    if (prevTop <= s.y0 + EPS && curTop > s.y0 && x > s.x0 && x < s.x1) {
-      fp.pos.y = f(s.y0 - e.top);
+    const y = ceilingY(s, fp.pos.x);
+    if (y === null) continue;
+    let prevY = ceilingY(s, px);
+    if (prevY === null) for (const o of stage.segments) if (o.kind === SegKind.Ceiling && o.group === s.group) prevY ??= ceilingY(o, px);
+    if (py + pe.top <= (prevY ?? y) + EPS && fp.pos.y + e.top > y) {
+      fp.pos.y = f(y - e.top);
       fp.envFlags |= ENV.Ceiling;
       return true;
     }
