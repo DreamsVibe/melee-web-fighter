@@ -7,7 +7,7 @@ export interface StageEntry { id: string; name: string; file: string; ready: boo
 
 export const STAGE_LIST: StageEntry[] = [
   { id: 'fd', name: 'Final Destination', file: 'GrNLa.dat', ready: true },
-  { id: 'battlefield', name: 'Battlefield', file: 'GrNBa.dat', ready: false },
+  { id: 'battlefield', name: 'Battlefield', file: 'GrNBa.dat', ready: true },
   { id: 'dreamland', name: 'Dream Land', file: 'GrOp.dat', ready: false },
   { id: 'yoshis', name: "Yoshi's Story", file: 'GrSt.dat', ready: false },
   { id: 'fountain', name: 'Fountain of Dreams', file: 'GrIz.dat', ready: false },
@@ -30,4 +30,8 @@ export interface StageFile {
   camera: [number, number, number, number];
   /** Model parts (map_head +8 gobjs): folders laid out like a character's (model/, textures/). */
   models: string[];
+  /** Ground parameter scale; collision and points are already in world units. */
+  modelScale?: number;
+  /** Battlefield scene parts and transition timing (frames at 60 Hz). */
+  background?: { scenes: string[]; transition: string; waitMin: number; waitRange: number; fadeFrames: number };
 }

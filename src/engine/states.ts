@@ -13,6 +13,7 @@ import {
 } from './physics';
 import { airCollision, groundCollision, EdgeMode, isOnPlatform } from './collision';
 import { def, MS } from './statedefs';
+import { atStickRim } from './ucf';
 import { ledgeCatchCheck, type LedgeDir } from './cliff';
 import {
   appealCheck, attack1Check, attackDashCheck, attackHi4Check, attackS4DashCheck, attacksS4ToLw3, catchCheck,
@@ -531,6 +532,11 @@ def({
     if (fp.mv.turnJustTurned) fp.input.pressed |= fp.mv.turnBuffered;
     // Attacks out of a turn face the new way; the turn itself flips on its own frame.
     if (!fp.mv.turnHasTurned) fp.facing = -fp.facing;
+    // UCF patches this temporary facing flip in IASA, before attacks, on frame two.
+    if (!fp.mv.turnHasTurned && fp.animFrame === 2 && fp.input.lx * fp.facing >= e.c.dash_stick_threshold
+        && fp.timers.lxTimer <= 1 && e.ucf.fastX()) {
+      fp.mv.turnHasTurned = fp.mv.turnJustTurned = fp.mv.turnX8 = 1;
+    }
     if (specialSCheck(e) || specialLwCheck(e) || specialHiCheck(e) || catchCheck(e) || attacksS4ToLw3(e) || attack1Check(e)) return;
     if (!fp.mv.turnHasTurned) fp.facing = -fp.facing;
     if (guardCheck(e) || appealCheck(e) || jumpCheck(e)) return;
@@ -782,7 +788,11 @@ def({
   iasa(e) {
     if (specialLwCheck(e) || specialHiCheck(e) || attacksS4ToLw3(e) || attack1Check(e) || guardCheck(e) || appealCheck(e)) return;
     if (jumpCheck(e) || passCheck(e) || dashCheck(e)) return;
-    if (e.fighter.input.ly > -e.c.squat_release_threshold) e.changeMotion(MS.SquatRv, MF.None, 0, 1);
+    const fp = e.fighter;
+    // UCF DBOOC: keep the rim's transient uncrouch poll inside crouch for this one frame.
+    const release = e.ucf.enabled && fp.timers.lxTimer < 1 && atStickRim(fp.input.lx, fp.input.ly)
+      ? f(0.59) : e.c.squat_release_threshold;
+    if (fp.input.ly > -release) e.changeMotion(MS.SquatRv, MF.None, 0, 1);
   },
   phys(e) { groundFriction(e.fighter, e.a, e.c); },
   coll: collFallOff,
@@ -872,4 +882,3 @@ def({
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
   coll(e) { collAirLand(e, landFromAir, false, 'facing'); },
 });
-

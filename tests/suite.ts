@@ -267,6 +267,268 @@ test('stages: Final Destination from the disc (spawns, blast zones, ledges, slan
   assert(top <= -55.3, `went through the underside: ECB top reached ${top}`);
 }, true);
 
+test('stages: Battlefield scale, three platforms, drop-throughs, ledges and KOs', async (disc) => {
+  const { foxData, falcoData, stageData, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { SegKind } = await import('../src/engine/stagetypes');
+  const { data: stage, file } = await stageData(disc, 'battlefield');
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.001;
+  assert(near(file.modelScale!, 0.8), 'missing stage scale');
+  assert(file.blast.every((v, i) => near(v, [-224, 224, -108.8, 200][i])), `blast ${file.blast}`);
+  assert(file.spawns.length === 4 && near(file.spawns[1][1], 62.4), `spawns ${JSON.stringify(file.spawns)}`);
+  const platforms = stage.segments.filter((s) => s.kind === SegKind.Platform);
+  assert(platforms.length === 3 && platforms.every((s) => s.ledges === 0), 'three ungrabbable platforms');
+  assert(platforms.map((s) => s.y0).sort().every((y, i) => near(y, [27.2, 27.2, 54.4][i])), 'platform heights');
+  const ledges = stage.segments.filter((s) => s.ledges);
+  assert(ledges.length === 2 && near(ledges[0].x0, -68.4) && near(ledges[1].x1, 68.4), 'ledge scale');
+  const { World } = await import('../src/engine/world');
+  const { sandbagData } = await import('./sim');
+  const world = new World(), player = world.add(new Engine(await foxData(disc))), bag = world.add(new Engine(await sandbagData(disc)));
+  world.setStage(stage);
+  player.spawn(...file.spawns[0], 1); bag.spawn(...file.spawns[1], -1);
+  for (let i = 0; i < 150; i++) world.step([pad()]);
+  assert(player.fighter.pos.x === 0 && bag.fighter.pos.x === 0, 'fighters pushed each other across different platform heights');
+  for (const data of [await foxData(disc), await falcoData(disc)]) {
+    const e = new Engine(data); e.setStage(stage);
+    for (const p of platforms) {
+      const x = (p.x0 + p.x1) / 2;
+      e.spawn(x, p.y0 + 4, 1);
+      for (let i = 0; i < 45; i++) e.step(pad());
+      assert(e.fighter.floor === p && near(e.fighter.pos.y, p.y0), `${data.name}: land on platform ${x}`);
+      const seen = new Set<string>();
+      for (let i = 0; i < 35; i++) { e.step(pad({ sy: -127 })); seen.add(e.fighter.motionName); }
+      assert(seen.has('Pass') && e.fighter.pos.y < p.y0 - 5, `${data.name}: drop through ${x}: ${[...seen]}`);
+      e.spawn(x, p.y0 - 10, 1);
+      e.step(pad({ buttons: 'X' }));
+      let peak = e.fighter.pos.y;
+      for (let i = 0; i < 90; i++) { e.step(pad()); peak = Math.max(peak, e.fighter.pos.y); }
+      assert(peak > p.y0 + 5 && e.fighter.floor === p, `${data.name}: jump through and land on platform ${x}`);
+    }
+    for (const side of [-1, 1]) {
+      e.spawn(side * 74, 4, -side);
+      const seen = new Set<string>();
+      for (let i = 0; i < 45; i++) { e.step(pad()); seen.add(e.fighter.motionName); }
+      assert(seen.has('CliffCatch'), `${data.name}: catch ledge ${side}`);
+    }
+    e.spawn(0, -52, 1);
+    e.step(pad({ sy: 127, buttons: 'B' }));
+    let highest = -Infinity;
+    for (let i = 0; i < 75; i++) {
+      e.step(pad({ sy: 127 })); highest = Math.max(highest, e.fighter.pos.y + e.fighter.ecb.top);
+      assert(Math.abs(e.fighter.pos.x) < 0.01, `${data.name}: snapped to a disconnected underside wall`);
+    }
+    assert(highest < -31, `${data.name}: passed through underside (${highest})`);
+    e.spawn(file.blast[1] + 10, 0, 1); e.step(pad());
+    assert(e.fighter.pos.x < file.blast[1] && e.fighter.percent === 0, `${data.name}: KO did not respawn`);
+  }
+}, true);
+
+test('shield drops: adapter notches, dodge priority and platform collision', async (disc) => {
+  const { foxData, falcoData, stageData, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { AdapterDecoder, emptyPad } = await import('../src/engine/pad');
+  const { SegKind } = await import('../src/engine/stagetypes');
+  const { GA } = await import('../src/engine/types');
+  const { data: stage } = await stageData(disc, 'battlefield');
+  // Exercise real adapter reports, including neutral calibration and the shield click.
+  const decoder = new AdapterDecoder(), report = new Uint8Array(37);
+  report[0] = 0x21; report[1] = 0x10;
+  report.set([128, 128, 128, 128, 30, 30], 4);
+  decoder.decode(report, 0, emptyPad());
+  const input = (sx = 0, sy = 0, cy = 0) => {
+    report[3] = 4; report[4] = 128 + sx; report[5] = 128 + sy; report[7] = 128 + cy;
+    const p = emptyPad();
+    assert(decoder.decode(report, 0, p), 'adapter report rejected');
+    return p;
+  };
+  for (const data of [await foxData(disc), await falcoData(disc)]) {
+    let e = new Engine(data);
+    const setup = (floor: typeof stage.segments[number], side = 0) => {
+      e = new Engine(data); e.setStage(stage);
+      e.spawnGrounded((floor.x0 + floor.x1) / 2, floor);
+      for (let i = 0; i < 12; i++) e.step(input());
+      if (side) {
+        // Tilt sideways without rolling, then move out to the gate once roll timing expires.
+        for (let i = 0; i < e.c.roll_stick_window + 2; i++) e.step(input(side * 40));
+        e.step(input(side * 80));
+      }
+      assert(e.fighter.shielding, `${data.name}: setup rolled instead of shielding`);
+    };
+    for (const floor of stage.segments.filter((s) => s.kind === SegKind.Platform)) {
+      for (const side of [-1, 1]) for (const [x, y] of [[57, -57], [55, -58], [53, -60], [52, -61]]) {
+        setup(floor, side);
+        e.step(input(side * x, y));
+        assert(e.fighter.motionName === 'Pass' && e.fighter.ga === GA.Air, `${data.name}: notch ${side * x},${y} produced ${e.fighter.motionName}`);
+        for (let i = 0; i < 8; i++) e.step(pad());
+        assert(e.fighter.pos.y < floor.y0 - 5 && e.fighter.floor !== floor, `${data.name}: shield drop relanded on its platform`);
+      }
+      // Original precise drops still work, and direct-down/c-stick dodges keep priority.
+      setup(floor); e.step(input(0, -54));
+      assert(String(e.fighter.motionName) === 'Pass', `${data.name}: original shield drop failed`);
+      for (const [x, y, cy] of [[0, -80, 0], [57, -57, 0], [0, 0, -80]]) {
+        setup(floor); e.step(input(x, y, cy));
+        assert(e.fighter.motionName === 'EscapeN', `${data.name}: fresh dodge input produced ${e.fighter.motionName}`);
+      }
+      setup(floor, 1); e.step(input(57, -57, -80));
+      assert(String(e.fighter.motionName) === 'EscapeN', `${data.name}: c-stick dodge lost priority`);
+      setup(floor, 1); e.step(input(48, -64));
+      assert(String(e.fighter.motionName) === 'EscapeN', `${data.name}: down at -0.8 no longer dodges`);
+      setup(floor); e.step(input(80));
+      assert(String(e.fighter.motionName) === 'EscapeF', `${data.name}: fresh side tap no longer rolls`);
+      setup(floor, 1); e.step(input(40, -57));
+      assert(e.fighter.motionName === 'EscapeN', `${data.name}: inside-gate input incorrectly widened`);
+    }
+    const solid = stage.segments.find((s) => s.kind === SegKind.Floor && s.y0 === 0)!;
+    setup(solid, 1); e.step(input(57, -57));
+    assert(e.fighter.motionName === 'EscapeN' && e.fighter.ga === GA.Ground, `${data.name}: solid floor allowed shield drop`);
+  }
+}, true);
+
+test('UCF: raw cardinal limits and two-frame intent thresholds', async () => {
+  const { Ucf } = await import('../src/engine/ucf');
+  const { padToFloats, emptyFloats } = await import('../src/engine/pad');
+  const { pad } = await import('./sim');
+  for (const side of [-1, 1]) {
+    for (const other of [-6, 0, 6]) for (const vertical of [false, true]) {
+      const p = pad({ sx: vertical ? other : side * 80, sy: vertical ? side * 80 : other, cx: side * 80, cy: other });
+      const out = padToFloats(p, emptyFloats()); new Ucf().cardinals(p, out);
+      assert((vertical ? out.stickY : out.stickX) === side && (vertical ? out.stickX : out.stickY) === 0 && out.cX === side, 'cardinal failed at tolerance edge');
+    }
+    for (const [x, y] of [[79, 0], [80, 7], [57, 57]]) {
+      const p = pad({ sx: x * side, sy: y }), out = padToFloats(p, emptyFloats()), before = { ...out };
+      new Ucf().cardinals(p, out);
+      assert(out.stickX === before.stickX && out.stickY === before.stickY, 'non-cardinal was snapped');
+    }
+    const u = new Ucf();
+    u.record(pad()); u.record(pad({ sx: side * 40 })); u.record(pad({ sx: side * 75 }));
+    assert(!u.fastX(), '75-unit motion passed strict dashback intent threshold');
+    u.record(pad()); u.record(pad({ sx: side * 40 })); u.record(pad({ sx: side * 76 }));
+    assert(u.fastX(), '76-unit motion failed dashback intent threshold');
+  }
+});
+
+test('UCF: dashback, crouch polling, tumble and high shield-drop notches', async (disc) => {
+  const { foxData, falcoData, newEngine, stageData, pad } = await import('./sim');
+  const { damageFallEnter } = await import('../src/engine/damage');
+  const { SegKind } = await import('../src/engine/stagetypes');
+  const { data: stage } = await stageData(disc, 'battlefield');
+  for (const data of [await foxData(disc), await falcoData(disc)]) for (const side of [-1, 1]) {
+    const dash = (enabled: boolean, fast: boolean) => {
+      const e = newEngine(data); e.ucf.enabled = enabled; e.fighter.facing = -side;
+      e.step(pad());
+      e.step(pad({ sx: side * (fast ? 40 : 60) }));
+      e.step(pad({ sx: side * (fast ? 80 : 70) }));
+      return e;
+    };
+    const fast = dash(true, true);
+    assert(fast.fighter.motionName === 'Dash' && fast.fighter.facing === side && fast.fighter.grVel * side > 0, `${data.name}: UCF dashback failed (${fast.fighter.motionName}, facing ${fast.fighter.facing}, velocity ${fast.fighter.grVel}, frame ${fast.fighter.animFrame})`);
+    assert(dash(false, true).fighter.motionName === 'Turn', `${data.name}: baseline was not a tilt turn`);
+    assert(dash(true, false).fighter.motionName === 'Turn', `${data.name}: slow tilt got a UCF dashback`);
+    for (const enabled of [true, false]) {
+      const e = newEngine(data); e.ucf.enabled = enabled;
+      for (let i = 0; i < 20; i++) e.step(pad({ sy: -80 }));
+      e.step(pad({ sx: side * 63, sy: -49 }));
+      assert(e.fighter.motionName === (enabled ? 'SquatWait' : 'SquatRv'), `${data.name}: crouch polling fix failed (${e.fighter.motionName})`);
+      e.step(pad({ sx: side * 80 }));
+      if (enabled) {
+        e.step(pad({ sx: side * 80 }));
+        assert(String(e.fighter.motionName) === 'Dash', `${data.name}: dash out of crouch failed`);
+      }
+      const t = newEngine(data); t.ucf.enabled = enabled; t.spawn(0, 100); damageFallEnter(t);
+      t.step(pad()); t.step(pad({ sx: side * 40 })); t.step(pad({ sx: side * 80 }));
+      assert(t.fighter.motionName === (enabled ? 'Fall' : 'DamageFall'), `${data.name}: tumble repair failed (${t.fighter.motionName})`);
+      const s = newEngine(data); s.ucf.enabled = enabled; s.setStage(stage);
+      const p = stage.segments.find((p) => p.kind === SegKind.Platform)!;
+      s.spawnGrounded((p.x0 + p.x1) / 2, p);
+      for (let i = 0; i < 12; i++) s.step(pad({ buttons: 'R' }));
+      for (let i = 0; i < 6; i++) s.step(pad({ buttons: 'R', sx: side * 40 }));
+      s.step(pad({ buttons: 'R', sx: side * 63, sy: -49 }));
+      assert(s.fighter.shielding, 'high notch triggered before its second frame');
+      s.step(pad({ buttons: 'R', sx: side * 63, sy: -49 }));
+      assert(s.fighter.motionName === (enabled ? 'Pass' : 'Guard'), `${data.name}: high-notch repair failed (${s.fighter.motionName}, flags ${s.ucf.highDropFrames}, input ${s.fighter.input.lx},${s.fighter.input.ly}, timer ${s.fighter.timers.lyTimer})`);
+    }
+  }
+}, true);
+
+test('UCF: real damage/shield hits recover first-frame SDI without repeated held-stick SDI', async (disc) => {
+  const { foxData, falcoData, newEngine, pad } = await import('./sim');
+  const { newHitbox } = await import('../src/engine/engine');
+  const { attackColl, collResolve } = await import('../src/engine/hits');
+  for (const data of [await foxData(disc), await falcoData(disc)]) for (const shield of [false, true]) for (const side of [-1, 1]) {
+    const run = (enabled: boolean) => {
+      const e = newEngine(data), attacker = newEngine(data, -side * 20); e.ucf.enabled = enabled;
+      if (!shield) e.spawn(0, 100);
+      for (let i = 0; i < 12; i++) e.step(pad({ buttons: shield ? 'R' : '' }));
+      e.step(pad({ buttons: shield ? 'R' : '', sx: side * 40 }));
+      const [x, y] = shield ? e.jointPoint(data.shieldJoint, 0, 0, 0) : [e.fighter.pos.x, e.fighter.pos.y + 10];
+      const h = newHitbox(0);
+      Object.assign(h, { active: true, damage: 12, count: 12, size: shield ? 1 : 30, angle: 80, kbg: 100, bkb: 20, shieldDamage: 2 });
+      h.pos3 = [x, y, 0]; h.prevPos3 = [x, y, 0]; attacker.fighter.hitboxes[0] = h;
+      const health = e.fighter.shieldHealth;
+      attackColl(e, [attacker, e]); collResolve(e);
+      assert(e.fighter.inHitlag && e.fighter.postHitlag === (shield ? 'shield' : 'damage'), 'real hit did not enter correct hitlag');
+      if (shield) assert(e.fighter.percent === 0 && e.fighter.shieldHealth < health && e.fighter.motionName === 'GuardSetOff', 'shield did not block damage and enter stun');
+      else assert(e.fighter.percent === 12, 'body hit damage changed');
+      const before = e.fighter.pos.x;
+      e.step(pad({ buttons: shield ? 'R' : '', sx: side * 80 }));
+      const displacement = e.fighter.pos.x - before;
+      const after = e.fighter.pos.x;
+      e.step(pad({ buttons: shield ? 'R' : '', sx: side * 80 }));
+      assert(Math.abs(e.fighter.pos.x - after) < 0.0001, 'held stick repeated SDI');
+      if (shield) {
+        for (let i = 0; i < 45; i++) e.step(pad({ buttons: 'R' }));
+        assert(e.fighter.shielding && e.fighter.motionName === 'Guard', 'shield stun failed to return to shield');
+      }
+      return displacement;
+    };
+    const fixed = run(true), original = run(false), scale = shield ? data.common.sdi_pos_scale * data.common.shield_sdi_mul : data.common.sdi_pos_scale;
+    assert(Math.abs(fixed - side * scale) < 0.001 && Math.abs(original) < 0.001, `${data.name}: ${shield ? 'shield' : 'damage'} SDI ${fixed}, baseline ${original}`);
+  }
+}, true);
+
+test('stages: Battlefield animations loop, hide branches and scroll textures', async (disc) => {
+  const { foxFolder } = await import('./sim');
+  const { effectiveFiles, loadModelDir, text } = await import('../src/shared/character');
+  const { readStageAnimation } = await import('../src/shared/stage-animation');
+  const { StagePose } = await import('../src/render/stage-animation');
+  const files = effectiveFiles(new Map(await foxFolder(disc)));
+  const dir = 'stages/battlefield/parts/6/';
+  const animation = readStageAnimation(text(files.get(dir + 'animation.json'))!);
+  const pose = new StagePose(loadModelDir(files, dir), animation);
+  const initial = pose.world.slice(), hidden = [...pose.hidden].join();
+  const texture = pose.model.materials.findIndex((m) => m.uvOffset && animation.groups.some((g) => g.target === 'texture' && g.index === pose.model.materials.indexOf(m)));
+  const uv = pose.model.materials[texture].uvOffset![1];
+  pose.sample(30);
+  assert(pose.world.every(Number.isFinite) && pose.world.some((v, i) => Math.abs(v - initial[i]) > 0.01), 'stage did not animate');
+  assert(pose.model.materials[texture].uvOffset![1] !== uv, 'texture did not scroll');
+  const visibility = new Set([hidden]);
+  for (let i = 0; i < 600; i += 7) { pose.sample(i); visibility.add([...pose.hidden].join()); }
+  assert(visibility.size > 1, 'visibility tracks ignored');
+  pose.sample(600);
+  assert(pose.world.every((v, i) => Math.abs(v - initial[i]) < 1e-5) && [...pose.hidden].join() === hidden, 'loop did not return to frame zero');
+  assert(pose.model.materials[texture].uvOffset![1] === uv, 'texture loop did not reset');
+  for (const part of [1, 2, 3, 4]) {
+    const d = `stages/battlefield/parts/${part}/`;
+    const p = new StagePose(loadModelDir(files, d), readStageAnimation(text(files.get(d + 'animation.json'))!));
+    for (const frame of [0, 100, 200, 399, 400, 1200]) { p.sample(frame); assert(p.world.every(Number.isFinite), `part ${part}: invalid pose`); }
+    if (part !== 3) assert(p.model.materials.some((m) => m.environment && m.texture), `part ${part}: missing environment texture`);
+  }
+  assert(!files.has('stages/battlefield/parts/5/model/mesh.mesh'), 'single-player background imported into VS scene');
+}, true);
+
+test('stages: background changes to a different scene and completes its transition', async () => {
+  const { StageScene } = await import('../src/render/stage-scene');
+  const scene = new StageScene({ scenes: ['a', 'b', 'c'], transition: 'effect', waitMin: 2400, waitRange: 1200, fadeFrames: 200 }, 400, () => 0);
+  for (let i = 0; i < 2399; i++) scene.step();
+  assert(scene.layers().length === 1 && scene.current === 0, 'transition started early');
+  scene.step(); assert(scene.layers().some((l) => l.dir === 'effect' && l.frame === 0), 'transition did not start');
+  for (let i = 0; i < 500; i++) scene.step();
+  const layers = scene.layers();
+  assert(layers.some((l) => l.dir === 'a' && l.alpha === 0.5) && layers.some((l) => l.dir === 'b' && l.alpha === 0.5), 'crossfade wrong');
+  for (let i = 0; i < 100; i++) scene.step();
+  assert(scene.layers().length === 1 && scene.layers()[0].dir === 'b', 'old scene or transition retained');
+});
+
 test('turnarounds turn the body once (standing, dash back, run), for Fox and Falco', async (disc) => {
   const { foxData, falcoData, newEngine, pad } = await import('./sim');
   type P = Parameters<typeof pad>[0];

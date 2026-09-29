@@ -76,19 +76,24 @@ function wallX(s: Segment, y: number): number | null {
 }
 
 /**
- * Where the wall that `s` belongs to was at height y: `s` itself, or the line of the same kind and
- * group at that height nearest to it (the next line of a slanted or bent wall).
+ * Follow connected lines, not merely a shared collision group: Battlefield's underside has
+ * several disconnected walls of the same kind. Substituting a distant wall can teleport a fighter.
  */
-function wallXNear(stage: StageData, s: Segment, y: number, near: number): number | null {
+function wallXNear(stage: StageData, s: Segment, y: number): number | null {
   const own = wallX(s, y);
   if (own !== null) return own;
-  let best: number | null = null;
-  for (const o of stage.segments) {
-    if (o.kind !== s.kind || o.group !== s.group) continue;
-    const x = wallX(o, y);
-    if (x !== null && (best === null || Math.abs(x - near) < Math.abs(best - near))) best = x;
+  const connected = [s];
+  for (let i = 0; i < connected.length; i++) {
+    const p = connected[i];
+    for (const o of stage.segments) {
+      if (o.kind !== s.kind || o.group !== s.group || connected.includes(o)) continue;
+      if (!((p.x0 === o.x1 && p.y0 === o.y1) || (p.x1 === o.x0 && p.y1 === o.y0))) continue;
+      const x = wallX(o, y);
+      if (x !== null) return x;
+      connected.push(o);
+    }
   }
-  return best;
+  return null;
 }
 
 /**
@@ -104,7 +109,7 @@ function collideWalls(fp: Fighter, stage: StageData, px: number, py: number): vo
     if (s.kind !== SegKind.WallLeft && s.kind !== SegKind.WallRight) continue;
     const x = wallX(s, sy);
     if (x === null) continue;
-    const prevX = wallXNear(stage, s, psy, x) ?? x;
+    const prevX = wallXNear(stage, s, psy) ?? x;
     if (s.kind === SegKind.WallLeft) {
       // Left face of a block: stops the fighter's right side moving right.
       if (px + pe.right <= prevX + EPS && fp.pos.x + e.right > x) {

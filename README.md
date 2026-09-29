@@ -75,6 +75,15 @@ through platforms, jabs, tilts, chargeable smashes, dash attack, all five aerial
 auto-cancel, Blaster, Illusion/Phantasm, Firefox/Fire Bird (aimable), Reflector with multishine
 and waveshine, light and power shield, rolls, spot dodge, grabs, and both taunts.
 
+**Shield drops.** Hold shield on a platform, angle the stick sideways without rolling, then
+rotate down to the diagonal notch. The UCF 0.84 shield-drop adjustments make this reliable across
+GameCube controllers. A straight-down tap still spot dodges; solid floors cannot be dropped through.
+
+**UCF 0.84 is enabled by default** for Fox and Falco: dashback, dash/dashback out of crouch,
+tumble escape, 1.0 cardinals, standard and high-notch shield drops, and first-frame SDI/shield SDI.
+Shield hits now block attacks, wear down the shield and cause shield stun. Existing character
+folders work without re-importing; new imports read the added hitlag constants from the disc.
+
 **Ledges.** Fall past the top corner of an image, button or box while facing it and you catch the
 ledge, as in Melee: you're briefly intangible and get your double jump back. From the ledge, push
 toward the page or tilt up to climb, press A or B to attack, L or R to roll, jump to jump off, and
@@ -89,10 +98,15 @@ select. Choosing a stage opens it in its own tab, with your fighter and Sandbag 
 points, the stage's blast zones, and a camera that follows the fight. **Esc** or Alt+Shift+M brings
 the menu back (the game pauses), and it lets you switch between Fox and Falco too.
 
-**Final Destination** is the first stage: its collision (including the slanted underside and both
-ledges), spawn points, blast zones and model all come from your disc, like the characters. Battlefield,
-Dream Land, Yoshi's Story, Fountain of Dreams and Pokémon Stadium are listed and come later. If the
-menu says to import your disc again, your import is from before stages existed.
+**Final Destination and Battlefield** are playable: their collision, spawn points, blast zones and
+models come from your disc, like the characters. Battlefield includes its three pass-through
+platforms, both ledges, animated stage structures and scrolling textures. Its background cycles
+between three scenes with an animated transition. Opening the menu pauses the scenery too.
+The background's particle scripts and the GameCube's full material pipeline aren't emulated, so
+some effects differ from Melee. Final Destination's scenery is still static.
+
+Dream Land, Yoshi's Story, Fountain of Dreams and Pokémon Stadium are listed and come later. If
+Battlefield says **Import your disc again**, reload the extension and re-import your disc to add it.
 
 ## Using a GameCube controller (Windows, optional)
 
@@ -228,6 +242,8 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
 * `node tools/e2e.mjs <folder>` checks the extension end to end in Chrome: it loads a copy of
   `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag, shoots, switches to
   Falco and saves screenshots (`CHARACTER=falco` starts as Falco).
+  Use a dev build with `SCENARIO=stage STAGE=battlefield` (environment variables) to check Battlefield,
+  its menu/pause behavior and the background transition. Test profiles and images belong in `.cache/`.
 * `NOTES.md` has the research notes (formats, offsets, decomp functions) and the list of deviations.
 
 ## Contributors

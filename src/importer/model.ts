@@ -26,6 +26,11 @@ export interface Material {
   translucent: boolean;
   joint: number;
   dobj: number;
+  textureId?: number;
+  environment?: boolean;
+  uvOffset?: [number, number];
+  uvRotation?: number;
+  textureScale?: [number, number];
 }
 
 /** Palette slot: joint index, and whether the joint's inverse bind matrix applies. */
@@ -87,7 +92,7 @@ function directSize(t: Attr): number {
 }
 
 /** The model under `root` (a JObj), by default the archive's `*_joint` root. */
-export function extractModel(a: Archive, root = a.rootEndingWith('_joint')[1]): ExtractedModel {
+export function extractModel(a: Archive, root = a.rootEndingWith('_joint')[1], stage = false): ExtractedModel {
   const { joints, index } = readRig(a, root);
   const out: ExtractedModel = { joints, vertices: [], bones: [], weights: [], indices: [], batches: [], materials: [], textures: [] };
   const texIndex = new Map<number, number>();
@@ -117,7 +122,7 @@ export function extractModel(a: Archive, root = a.rootEndingWith('_joint')[1]): 
         for (let tobj = a.ptr(mobj + 8); tobj; tobj = a.ptr(tobj + 4)) {
           const flags = a.u32(tobj + 0x40);
           const coord = flags & 0xf;
-          if (coord !== 0) continue;
+          if (coord !== 0 && !(stage && coord === 1)) continue;
           let ti = texIndex.get(tobj);
           if (ti === undefined) {
             const tex = decodeTObj(a, tobj);
@@ -130,6 +135,13 @@ export function extractModel(a: Archive, root = a.rootEndingWith('_joint')[1]): 
           mat.texFlags = flags;
           mat.uvScale = [a.u8(tobj + 0x3c) || 1, a.u8(tobj + 0x3d) || 1];
           mat.wrap = [a.u32(tobj + 0x34), a.u32(tobj + 0x38)];
+          if (stage) {
+            mat.textureId = a.u32(tobj + 8);
+            mat.environment = coord === 1;
+            mat.textureScale = [a.f32(tobj + 0x1c), a.f32(tobj + 0x20)];
+            mat.uvOffset = [a.f32(tobj + 0x28), a.f32(tobj + 0x2c)];
+            mat.uvRotation = a.f32(tobj + 0x18);
+          }
           break;
         }
       }

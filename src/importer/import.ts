@@ -44,7 +44,7 @@ startBtn.addEventListener('click', async () => {
       say(text);
     }, (line) => { log.textContent += line + '\n'; log.scrollTop = log.scrollHeight; });
     progress.value = 1;
-    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: Fox, Falco, Sandbag and Final Destination take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
+    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: Fox, Falco, Sandbag, Final Destination and Battlefield take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
     await showPreview();
   } catch (err) {
     console.error(err);
@@ -107,6 +107,6 @@ import('../shared/db').then(async ({ getFile, asText, FORMAT_VERSION }) => {
   if (!info) return;
   if ((JSON.parse(info).formatVersion ?? 0) < FORMAT_VERSION) say('An older import was found: import your disc again (this version needs more from it, such as ledges).');
   else if (!(await getFile('characters/falco/character.json')) || !(await getFile('stages/fd/stage.json'))) say('An older import was found: import your disc again to add Falco and the stages.');
-  else say('Fox, Falco, Sandbag and Final Destination are already imported. Import again to refresh them.');
+  else say('Character data is already imported. Import again to refresh it and add any new stages, including Battlefield.');
   await showPreview();
 });

@@ -9,14 +9,15 @@
 //                                             hang from and climb a ledge,
 //                                             RELOAD=1 to reload the extension with the fighter on
 //                                             the page and bring the new version in,
-//                                             SCENARIO=stage for the stage page and its menu)
+//                                             SCENARIO=stage for the stage page and its menu,
+//                                             STAGE=battlefield to exercise Battlefield and its animation)
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync, readdirSync, cpSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const OUT = process.argv[2] ?? join(tmpdir(), 'mwf-e2e');
+const OUT = resolve(process.argv[2] ?? join(tmpdir(), 'mwf-e2e'));
 const CHARACTER = process.env.CHARACTER ?? 'fox';
 const OTHER = CHARACTER === 'fox' ? 'falco' : 'fox';
 const REPO = process.cwd();
@@ -36,26 +37,35 @@ writeFileSync(join(ext, 'manifest.json'), JSON.stringify(man));
 const server = createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(readFileSync(process.env.PAGE ?? join(REPO, 'tests', 'pages', 'sample.html'))); }).listen(8765);
 
 const chrome = spawn(CHROME, [
-  '--headless=new', `--user-data-dir=${prof}`, '--remote-debugging-pipe', '--enable-unsafe-extension-debugging',
+  '--headless=new', `--user-data-dir=${prof}`, '--remote-debugging-port=0', '--enable-unsafe-extension-debugging',
   '--no-first-run', '--no-default-browser-check', '--window-size=1280,900', '--autoplay-policy=no-user-gesture-required', 'about:blank',
-], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-const write = chrome.stdio[3], read = chrome.stdio[4];
-let buf = '', nextId = 1;
+], { stdio: ['ignore', 'ignore', 'pipe'] });
+// Chrome's inherited CDP pipes are not portable across Windows Node versions. Use its local
+// ephemeral debugging endpoint, confined to this disposable test profile.
+const endpoint = await new Promise((resolve, reject) => {
+  let stderr = '';
+  const timeout = setTimeout(() => { chrome.kill(); reject(new Error(`Chrome startup timed out: ${stderr.slice(-1500)}`)); }, 15000);
+  chrome.on('error', reject);
+  chrome.on('exit', (code) => { clearTimeout(timeout); reject(new Error(`Chrome exited ${code}: ${stderr.slice(-1500)}`)); });
+  chrome.stderr.on('data', (chunk) => {
+    stderr += chunk;
+    const match = stderr.match(/DevTools listening on (ws:\/\/\S+)/);
+    if (match) { clearTimeout(timeout); resolve(match[1]); }
+  });
+});
+const socket = new WebSocket(endpoint);
+await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+let nextId = 1;
 const waiting = new Map(), listeners = [];
-read.on('data', (d) => {
-  buf += d.toString();
-  let i;
-  while ((i = buf.indexOf('\0')) >= 0) {
-    const msg = JSON.parse(buf.slice(0, i));
-    buf = buf.slice(i + 1);
+socket.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
     if (msg.id && waiting.has(msg.id)) { const { res, rej } = waiting.get(msg.id); waiting.delete(msg.id); msg.error ? rej(new Error(JSON.stringify(msg.error))) : res(msg.result); }
     else for (const l of listeners) l(msg);
-  }
-});
+};
 const send = (method, params = {}, sessionId) => new Promise((res, rej) => {
   const id = nextId++;
   waiting.set(id, { res, rej });
-  write.write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + '\0');
+  socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[e2e]', ...a);
@@ -69,7 +79,7 @@ async function attach(url) {
   await send('Log.enable', {}, sessionId);
   return { targetId, sessionId };
 }
-const evaluate = async (s, expr) => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, s); if (r.exceptionDetails) log('eval error', JSON.stringify(r.exceptionDetails).slice(0, 300)); return r.result.value; };
+const evaluate = async (s, expr) => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, s); if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails)); return r.result.value; };
 async function shot(s, name) {
   const { data } = await send('Page.captureScreenshot', { format: 'png' }, s);
   writeFileSync(join(OUT, name), Buffer.from(data, 'base64'));
@@ -109,7 +119,8 @@ try {
     await sleep(1500);
     await shot(st.sessionId, 'e2e-stage-menu.png');
     log('menu:', await evaluate(st.sessionId, `[...document.querySelectorAll('.stages button')].map((b) => b.textContent + (b.disabled ? ' (off)' : '')).join(' | ')`));
-    await evaluate(st.sessionId, `[...document.querySelectorAll('.stages button')].find((b) => !b.disabled).click(); 1`);
+    const stageName = process.env.STAGE === 'battlefield' ? 'Battlefield' : 'Final Destination';
+    await evaluate(st.sessionId, `[...document.querySelectorAll('.stages button')].find((b) => b.querySelector('b').textContent === ${JSON.stringify(stageName)} && !b.disabled).click(); 1`);
     // Dev builds expose the game: where the fighters are just after they appear.
     for (const ms of [150, 400, 1500]) {
       await sleep(ms);
@@ -128,6 +139,23 @@ try {
     await sleep(500);
     await shot(st.sessionId, 'e2e-stage-esc.png');
     log('menu open after Esc:', await evaluate(st.sessionId, `!document.getElementById('menu').hidden`));
+    if (process.env.STAGE === 'battlefield' && await evaluate(st.sessionId, '!!window.__mwfStageGame')) {
+      const pausedAt = await evaluate(st.sessionId, 'window.__mwfStageGame.arena.scene.frame');
+      await sleep(250);
+      if (await evaluate(st.sessionId, 'window.__mwfStageGame.arena.scene.frame') !== pausedAt) throw new Error('Scenery keeps moving while paused');
+      await skey('Escape', 'keyDown'); await skey('Escape', 'keyUp');
+      await skey('F9', 'keyDown'); await skey('F9', 'keyUp');
+      await evaluate(st.sessionId, `(() => { const g=window.__mwfStageGame; g.setPaused(true); g.engine.spawn(0,0,1); g.sandbag.spawn(0,54.4,-1); g.arena.view.set(0,23,78); g.arena.scene.wait=1; })()`);
+      for (const [steps, label] of [[0, 'initial'], [201, 'transition'], [300, 'fade'], [150, 'next']]) {
+        const state = await evaluate(st.sessionId, `(() => { const a=window.__mwfStageGame.arena; for(let i=0;i<${steps};i++) { a.scene.step(); a.frame++; } return a.scene.layers(); })()`);
+        log('background', label, JSON.stringify(state));
+        await sleep(100);
+        await shot(st.sessionId, `e2e-battlefield-${label}.png`);
+        if (label === 'next' && (state.length !== 1 || state[0].dir === 'parts/1/')) throw new Error('Background transition failed');
+      }
+      const glError = await evaluate(st.sessionId, 'window.__mwfStageGame.gl.getError()');
+      if (glError) throw new Error(`WebGL error ${glError}`);
+    }
     log('shortcut:', await evaluate(swS, `chrome.commands.getAll().then((c) => c.map((x) => x.name + '=' + (x.shortcut || '-')).join(', '))`));
     chrome.kill(); server.close(); process.exit(0);
   }
@@ -213,8 +241,9 @@ try {
   }
 } catch (e) {
   log('error', e.stack);
+  process.exitCode = 1;
 } finally {
   chrome.kill();
   server.close();
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }

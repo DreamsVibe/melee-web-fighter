@@ -93,6 +93,12 @@ export const COMMON_FIELDS: Field[] = [
   ['damagefall_drift_threshold', 0x210], ['damagefall_drift_window', 0x214, 'i'], ['fly_top_angle_min', 0x234],
   ['fly_top_angle_max', 0x238], ['fly_roll_percent', 0x23c, 'i'], ['fly_roll_chance', 0x240], ['down_wait_frames', 0x424],
   ['push_speed', 0x450], ['phantom_threshold', 0x7a8], ['hit_effect_big_kb', 0x3f0],
+  ['sdi_min_stick_mag', 0x4b0], ['sdi_stick_window', 0x4b4, 'i'], ['sdi_pos_scale', 0x4b8],
+  ['asdi_pos_scale', 0x4bc], ['shield_sdi_mul', 0x4c0],
+  ['shield_damage_mul', 0x284], ['shield_damage_add', 0x288], ['shield_stun_mul', 0x28c],
+  ['shield_stun_add', 0x290], ['shield_push_mul', 0x294], ['shield_push_max', 0x298],
+  ['shield_push_full_mul', 0x2bc], ['shield_damage_light', 0x2dc], ['shield_damage_full', 0x2e0],
+  ['shield_stun_light', 0x2e4], ['shield_stun_full', 0x2e8],
   // Ledges (ft/ftcliffcommon.c, ftCo_Cliff*.c, ft/ft_081B.c).
   ['cliff_grab_stick_threshold', 0x480], ['cliff_slow_percent', 0x488, 'i'], ['cliff_wait_frames', 0x48c],
   ['cliff_wait_frames_slow', 0x490], ['cliff_climb_stick_threshold', 0x494], ['ledge_cooldown', 0x498, 'i'],
@@ -101,6 +107,14 @@ export const COMMON_FIELDS: Field[] = [
 
 /** Sandbag's own attributes (ext_attr: its knockback deceleration, ftCommon_SandbagGetKnockbackDeaccelX/Y). */
 export const SANDBAG_SPECIAL_FIELDS: Field[] = [['kb_decel_x', 0x0], ['kb_decel_y', 0x4]];
+
+/** NTSC 1.02 values for folders imported before the hitlag fields were exported. */
+export const HITLAG_DEFAULTS = {
+  sdi_min_stick_mag: 0.7, sdi_stick_window: 4, sdi_pos_scale: 6, asdi_pos_scale: 3, shield_sdi_mul: 0.66,
+  shield_damage_mul: 1, shield_damage_add: 0, shield_stun_mul: 1.5, shield_stun_add: 2,
+  shield_push_mul: 0.2, shield_push_max: 2, shield_push_full_mul: 0.6,
+  shield_damage_light: 0.1, shield_damage_full: 0.3, shield_stun_light: 0.05, shield_stun_full: 0.7,
+};
 
 export type NamedValues = Record<string, number>;
 

@@ -10,6 +10,8 @@ import { SegKind, type Segment } from '../engine/stagetypes';
 import { FORMAT_VERSION } from '../shared/db';
 import { stageDir, type StageEntry, type StageFile } from '../shared/stages';
 import type { Log, OutFile } from './pipeline';
+import { readStageAnimation } from './stage-animation';
+import { writeStageAnimation } from '../shared/stage-animation';
 
 /** MapLine lo_flags (mp/forward.h). */
 const LINE_FLAG_PLATFORM = 1 << 8;
@@ -93,16 +95,25 @@ export function convertStage(data: Uint8Array, spec: StageEntry, log: Log): OutF
   const dir = stageDir(spec.id);
   const segments = readCollision(a);
   const points = readPoints(a);
+  const modelScale = a.roots.has('grGroundParam') ? a.f32(a.root('grGroundParam')) : 1;
+  if (!(modelScale > 0 && Number.isFinite(modelScale))) throw new Error(`${spec.name}: invalid stage scale`);
+  for (const s of segments) for (const key of ['x0', 'y0', 'x1', 'y1'] as const) s[key] = tidy(s[key] * modelScale);
+  for (const [id, p] of points) points.set(id, [tidy(p[0] * modelScale), tidy(p[1] * modelScale)]);
   const files: OutFile[] = [];
   // Model parts (map_head +8: 0x34-byte gobj descriptions, the joint tree first).
   const head = a.root('map_head');
   const gobjs = a.ptr(head + 8), gobjCount = a.u32(head + 0xc);
   const models: string[] = [];
   for (let g = 0; g < gobjCount; g++) {
+    // Part 5 is Battlefield's alternate single-player scenery, not part of the VS scene.
+    if (spec.id === 'battlefield' && g === 5) continue;
     const root = a.ptr(gobjs + 0x34 * g);
     if (!root) continue;
     let m;
-    try { m = extractModel(a, root); } catch (e) { log(`${spec.name} part ${g}: skipped (${(e as Error).message})`); continue; }
+    try { m = extractModel(a, root, spec.id === 'battlefield'); } catch (e) {
+      if (spec.id === 'battlefield') throw new Error(`${spec.name} part ${g}: ${(e as Error).message}`);
+      log(`${spec.name} part ${g}: skipped (${(e as Error).message})`); continue;
+    }
     if (!m.indices.length) continue;
     // Laid out like a character folder (model/, textures/), so the same loader reads it.
     const md = `parts/${g}/`;
@@ -118,9 +129,15 @@ export function convertStage(data: Uint8Array, spec: StageEntry, log: Log): OutF
     const materials: MaterialDef[] = m.materials.map((mt) => ({
       diffuse: mt.diffuse, ambient: mt.ambient, texture: mt.texture >= 0 ? `textures/tex${String(mt.texture).padStart(2, '0')}.tex` : null,
       uvScale: mt.uvScale, wrap: mt.wrap, translucent: mt.translucent, alpha: mt.alpha, dobj: mt.dobj, joint: mt.joint,
+      ...(spec.id === 'battlefield' ? { environment: mt.environment, uvOffset: mt.uvOffset, uvRotation: mt.uvRotation,
+        textureScale: mt.textureScale, unlit: g !== 6 } : {}),
     }));
     files.push({ path: dir + md + 'model/materials.json', data: JSON.stringify(materials) });
     m.textures.forEach((t, i) => files.push({ path: dir + md + `textures/tex${String(i).padStart(2, '0')}.tex`, data: writeTexture(t) }));
+    if (spec.id === 'battlefield') {
+      const animation = readStageAnimation(a, gobjs + 0x34 * g, m);
+      if (animation.groups.length) files.push({ path: dir + md + 'animation.json', data: writeStageAnimation(animation) });
+    }
   }
   const spawns = [0, 1, 2, 3].map((i) => points.get(i)).filter((p): p is [number, number] => !!p);
   const respawns = [4, 5, 6, 7].map((i) => points.get(i)).filter((p): p is [number, number] => !!p);
@@ -130,7 +147,9 @@ export function convertStage(data: Uint8Array, spec: StageEntry, log: Log): OutF
     // The game's own fallbacks when a stage has no such points (Ground_801C3BB4, Ground_801C39C0).
     blast: box(points.get(0x97), points.get(0x98)) ?? [-250, 250, -100, 200],
     camera: box(points.get(0x95), points.get(0x96)) ?? [-170, 170, -60, 120],
-    models,
+    models, modelScale,
+    ...(spec.id === 'battlefield' ? { background: { scenes: ['parts/1/', 'parts/2/', 'parts/4/'], transition: 'parts/3/',
+      waitMin: 2400, waitRange: 1200, fadeFrames: 200 } } : {}),
   };
   files.push({ path: dir + 'stage.json', data: JSON.stringify(stage, null, 2) + '\n' });
   log(`${spec.name}: ${segments.length} collision lines, ${points.size} points, ${models.length} model parts`);

@@ -7,13 +7,14 @@
 // Offsets accept hex (0x...) or a root name, optionally plus "+0x10" or "->" steps:
 //   node <tmp>/datx.mjs words PlSb.dat "ftDataSandbag+0x30->" 2
 // The disc comes from MELEE_ISO or a .iso/.ciso in the current folder.
-import { openAsBlob, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
+import { openDiscFile } from './disc-file';
 import { Disc } from '../src/importer/disc';
 import { Archive } from '../src/importer/hsd';
 
 const iso = process.env.MELEE_ISO ?? readdirSync('.').find((f) => /\.(c?iso|gcm)$/i.test(f));
 if (!iso) throw new Error('No disc: set MELEE_ISO or run from a folder with the .iso/.ciso');
-const disc = await Disc.open(await openAsBlob(iso));
+const disc = await Disc.open(await openDiscFile(iso));
 const [cmd, file, at, count] = process.argv.slice(2);
 const hex = (n: number, w = 8) => n.toString(16).padStart(w, '0');
 

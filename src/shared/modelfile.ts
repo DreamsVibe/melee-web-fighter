@@ -36,6 +36,12 @@ export interface MaterialDef {
   /** Index of the DObj in the model (for part visibility). */
   dobj: number;
   joint: number;
+  /** Optional stage texture transform and environment mapping. Legacy fighter materials omit these. */
+  environment?: boolean;
+  uvOffset?: [number, number];
+  uvRotation?: number;
+  textureScale?: [number, number];
+  unlit?: boolean;
 }
 
 export interface TextureData { width: number; height: number; kind: 'rgba8' | 'bc1'; data: Uint8Array }

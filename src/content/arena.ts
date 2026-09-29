@@ -8,11 +8,13 @@ import { SegKind, type StageData } from '../engine/stagetypes';
 import type { Fighter } from '../engine/types';
 import type { Settings } from '../shared/settings';
 import type { StageFile } from '../shared/stages';
-import { loadModelDir, type FileMap } from '../shared/character';
+import { loadModelDir, text, type FileMap } from '../shared/character';
 import { FighterRenderer } from '../render/fighter';
-import { restPose, worldMatrices } from '../render/pose';
 import { lookAt, multiply, ortho, perspective, placement } from '../render/mat4';
 import { stageDir } from '../shared/stages';
+import { readStageAnimation } from '../shared/stage-animation';
+import { StagePose } from '../render/stage-animation';
+import { StageScene } from '../render/stage-scene';
 
 export interface Arena {
   readonly view: ViewLike;
@@ -181,7 +183,9 @@ export class StageArena implements Arena {
   readonly data: StageData;
   readonly ready = true;
   readonly clearColor: [number, number, number, number] = [0.02, 0.02, 0.06, 1];
-  private parts: Array<{ renderer: FighterRenderer; world: Float32Array }> = [];
+  private parts: Array<{ dir: string; renderer: FighterRenderer; pose: StagePose }> = [];
+  private scene: StageScene | null = null;
+  private frame = 0;
   private place = placement(new Float32Array(16), 0, 0, 0, 0, 1);
   private viewM = new Float32Array(16);
   private projM = new Float32Array(16);
@@ -189,12 +193,17 @@ export class StageArena implements Arena {
 
   constructor(readonly file: StageFile, data: StageData, files: FileMap, gl: WebGL2RenderingContext) {
     this.data = data;
-    // Stage parts stand still for now: their rest pose, placed at the origin.
+    placement(this.place, 0, 0, 0, 0, file.modelScale ?? 1);
     for (const dir of file.models) {
       const model = loadModelDir(files, stageDir(file.id) + dir);
-      const world = new Float32Array(model.joints.length * 12);
-      worldMatrices(model.joints, restPose(model.joints), world, new Float32Array(model.joints.length * 3));
-      this.parts.push({ renderer: new FighterRenderer(gl, model), world });
+      const json = text(files.get(stageDir(file.id) + dir + 'animation.json'));
+      const pose = new StagePose(model, json ? readStageAnimation(json) : undefined);
+      this.parts.push({ dir, renderer: new FighterRenderer(gl, model), pose });
+    }
+    if (file.background) {
+      const transition = this.parts.find((p) => p.dir === file.background!.transition);
+      const duration = Math.max(0, ...transition!.pose.animation.groups.map((g) => g.duration));
+      this.scene = new StageScene(file.background, duration);
     }
     const [l, r, b, t] = file.camera;
     this.view.set((l + r) / 2, (b + t) / 2 * 0.5, CAMERA_MIN_HALF_H);
@@ -202,6 +211,8 @@ export class StageArena implements Arena {
 
   /** Follows the fighters: frames them with some room, never tighter than a minimum, inside the stage's camera range. */
   update(fighters: Fighter[]): void {
+    this.frame++;
+    this.scene?.step();
     if (!fighters.length) return;
     let l = Infinity, r = -Infinity, b = Infinity, t = -Infinity;
     for (const fp of fighters) {
@@ -246,7 +257,19 @@ export class StageArena implements Arena {
   }
 
   drawBackground(viewProj: Float32Array): void {
-    for (const p of this.parts) p.renderer.draw(p.world, this.place, viewProj);
+    const draw = (p: typeof this.parts[number], frame: number, alpha = 1) => {
+      if (alpha <= 0) return;
+      p.pose.sample(frame);
+      p.renderer.draw(p.pose.world, this.place, viewProj, p.pose.hidden, alpha);
+    };
+    if (this.scene) for (const layer of this.scene.layers()) {
+      const part = this.parts.find((p) => p.dir === layer.dir);
+      if (part) draw(part, layer.frame, layer.alpha);
+    }
+    for (const p of this.parts) {
+      if (this.file.background && (this.file.background.scenes.includes(p.dir) || p.dir === this.file.background.transition)) continue;
+      draw(p, this.frame);
+    }
   }
 
   applySettings(): void { /* the camera sets the scale */ }

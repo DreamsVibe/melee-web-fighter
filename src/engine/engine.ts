@@ -17,6 +17,8 @@ import { STATES, MS, type StateDef } from './states';
 import { collResolve, fighterNudge, moveIdOf, staleMultiplier } from './hits';
 import { damageExitHitlag, WAIT_REVERSE } from './damage';
 import type { World } from './world';
+import { Ucf } from './ucf';
+import { hitlagSdi, hitlagAsdi } from './hitlag';
 
 const f = Math.fround;
 
@@ -41,7 +43,7 @@ const KEEPS_JAB_WINDOW = (msid: number) => msid >= MS.Wait && msid <= MS.WalkFas
 export function newHitbox(id: number): HitboxState {
   return {
     active: false, id, group: 0, bone: 0, damage: 0, count: 0, size: 0, offset: [0, 0, 0], angle: 0, kbg: 0, bkb: 0, wkb: 0,
-    element: 0, sfxLevel: 0, sfxKind: 0, ground: true, air: true, fighters: true,
+    element: 0, sfxLevel: 0, sfxKind: 0, shieldDamage: 0, ground: true, air: true, fighters: true,
     pos: [0, 0], prevPos: [0, 0], pos3: [0, 0, 0], prevPos3: [0, 0, 0], fresh: true, victims: new Set(), tipVictims: new Set(), contact: [0, 0, 0], overlap: 0,
   };
 }
@@ -60,6 +62,7 @@ function newFighter(data: CharacterData): Fighter {
     smash: { state: Smash.None, frames: 0, hold: 0, rate: 1, sfx: false, damageMul: 1 },
     rootPos: { x: 0, y: 0, z: 0 }, rootDelta: { x: 0, y: 0, z: 0 }, xRot: NaN, rootRotY: Math.PI / 2,
     shieldHealth: data.common.shield_start_health ?? 60, lightshield: 0, shielding: false, ghosts: [], ghostRot: [],
+    shieldDamage: 0, shieldHitDamage: 0, shieldHitDir: 1,
     hitboxes: Array.from({ length: 4 }, (_, id) => newHitbox(id)),
     input: { lx: 0, ly: 0, plx: 0, ply: 0, cx: 0, cy: 0, pcx: 0, pcy: 0, trigger: 0, ptrigger: 0, held: 0, pheld: 0, pressed: 0, released: 0 },
     hasPrevInput: false,
@@ -100,6 +103,8 @@ export class Engine implements EngineApi {
   a: Named;
   c: Named;
   pad: PadFloats = emptyFloats();
+  readonly ucf = new Ucf();
+  private rawPad: PadState = { buttons: 0, stickX: 0, stickY: 0, cX: 0, cY: 0, trigL: 0, trigR: 0 };
   private rest: Float32Array;
   private scratch: Float32Array;
   private states: Map<number, StateDef> = STATES;
@@ -179,6 +184,7 @@ export class Engine implements EngineApi {
   /** Back to 0% with no knockback, hitlag or hitstun (a respawn). */
   resetDamage(): void {
     const fp = this.fighter;
+    fp.shieldDamage = fp.shieldHitDamage = 0;
     fp.percent = 0; fp.percentTemp = 0; fp.damageApplied = 0; fp.kbApplied = 0; fp.dealtDamage = 0; fp.damageLog.length = 0;
     fp.tipLog.length = 0; fp.phantomHitlag = 0; fp.phantomFrames = 0; fp.phantomDamage = 0; fp.phantomSource = null; fp.hitlagMul = 1;
     fp.kbVel.x = fp.kbVel.y = 0; fp.groundKbVel = 0; fp.hitlag = 0; fp.inHitlag = false; fp.allowSdi = false; fp.postHitlag = null;
@@ -251,6 +257,8 @@ export class Engine implements EngineApi {
     this.events.length = 0;
     for (const p of this.plugins) p.input?.(this, pad);
     padToFloats(pad, this.pad);
+    Object.assign(this.rawPad, pad);
+    this.ucf.cardinals(pad, this.pad);
     this.frame++;
     // Attributes for this frame (the moon gravity plugin edits a copy, never the data).
     Object.assign(this.a, this.data.attrs);
@@ -286,7 +294,9 @@ export class Engine implements EngineApi {
   /** Fighter_8006D10C: hitlag ends (post_hitlag_cb, then unfreeze). */
   exitHitlag(): void {
     const fp = this.fighter;
+    hitlagAsdi(this);
     if (fp.postHitlag === 'damage') damageExitHitlag(this);
+    fp.postHitlag = null;
     fp.inHitlag = false;
   }
 
@@ -391,6 +401,7 @@ export class Engine implements EngineApi {
   // ---- Fighter_procInput
   procInput(): void {
     const fp = this.fighter, c = this.c, inp = fp.input, t = fp.timers, k = fp.counters;
+    this.ucf.record(this.rawPad);
     const pad = this.pad;
     if (!fp.hasPrevInput) {
       inp.plx = inp.lx; inp.ply = inp.ly; inp.pcx = inp.cx; inp.pcy = inp.cy; inp.ptrigger = inp.trigger; inp.pheld = inp.held;
@@ -446,6 +457,7 @@ export class Engine implements EngineApi {
     // The L-cancel counter (fp->x67F): frames since the last press of L/R/analog/Z.
     if (pr & PAD_LR) k.lr = 0; else if (k.lr < 255) k.lr++;
     if (pr & (BTN.L | BTN.R)) { k.lrDigitalPrev = k.lrDigital; k.lrDigital = 0; } else if (k.lrDigital < 255) k.lrDigital++;
+    this.ucf.afterInput(fp);
     if (fp.inHitlag) return;
     this.smashChargeInput();
     // Fighter_UnkIncrementCounters_8006ABEC
@@ -473,7 +485,7 @@ export class Engine implements EngineApi {
     const fp = this.fighter, c = this.c;
     this.lastPos.x = fp.pos.x; this.lastPos.y = fp.pos.y;
     fp.prevPos.x = fp.pos.x; fp.prevPos.y = fp.pos.y;
-    if (fp.inHitlag) return;
+    if (fp.inHitlag) { hitlagSdi(this); return; }
     if (fp.ledgeCooldown) fp.ledgeCooldown -= 1;
     this.def().phys?.(this);
     // Knockback velocity decays: in the air along its own direction (Sandbag per axis, by its own
@@ -633,6 +645,7 @@ export class Engine implements EngineApi {
         h.offset[0] = c.f.z; h.offset[1] = c.f.y; h.offset[2] = c.f.x;
         h.angle = c.f.angle; h.kbg = c.f.kbg; h.bkb = c.f.bkb; h.wkb = c.f.wkb; h.element = c.f.element;
         h.sfxLevel = c.f.sfx_level; h.sfxKind = c.f.sfx_kind;
+        h.shieldDamage = c.f.shield;
         h.ground = !!c.f.ground; h.air = !!c.f.air; h.fighters = true;
         break;
       }

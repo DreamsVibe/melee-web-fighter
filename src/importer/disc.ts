@@ -2,6 +2,7 @@
 // The whole image is never loaded: only the header, the file table and the files asked for.
 
 export interface DiscFile { path: string; offset: number; size: number }
+export interface DiscSource { slice(start?: number, end?: number): Pick<Blob, 'arrayBuffer'> }
 
 export class DiscError extends Error {}
 
@@ -16,9 +17,9 @@ export class Disc {
   revision = -1;
   kind: 'iso' | 'ciso' = 'iso';
 
-  private constructor(private readonly file: Blob) {}
+  private constructor(private readonly file: DiscSource) {}
 
-  static async open(file: Blob): Promise<Disc> {
+  static async open(file: DiscSource): Promise<Disc> {
     const d = new Disc(file);
     await d.init();
     return d;

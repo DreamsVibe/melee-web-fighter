@@ -8,6 +8,7 @@ import type { CharacterData, CompiledMove, Named } from './types';
 import { BEHAVIORS } from './behaviors';
 import { stageDir, type StageFile } from '../shared/stages';
 import type { StageData } from './stagetypes';
+import { HITLAG_DEFAULTS } from '../shared/attributes';
 
 /** A stage's collision, points and blast zones for the engine, from stages/<id>/stage.json. */
 export function loadStage(files: FileMap, id: string): { data: StageData; file: StageFile } | null {
@@ -72,7 +73,7 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
     name: info.name,
     attrs: f(attrs as Named),
     special: f(special),
-    common: f(common),
+    common: f({ ...HITLAG_DEFAULTS, ...common }),
     moves,
     skeleton: readSkeleton(bytes(need(dir + 'model/skeleton.skel'))!),
     modelScale: Math.fround(info.modelScale),

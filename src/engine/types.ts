@@ -93,6 +93,7 @@ export interface HitboxState {
   bkb: number;
   wkb: number;
   element: number;
+  shieldDamage: number;
   sfxLevel: number;
   sfxKind: number;
   /** Hits fighters on the ground / in the air (x40_b3 / x40_b2), fighters at all (x42_b5). */
@@ -240,6 +241,9 @@ export interface Fighter {
   shieldHealth: number;
   lightshield: number;
   shielding: boolean;
+  shieldDamage: number;
+  shieldHitDamage: number;
+  shieldHitDir: number;
   /** Recent positions for afterimages (Fox's Illusion keeps four), empty when none. */
   ghosts: number[];
   /** TopN's X rotation at each of those positions (mv.fx.SpecialS.blendFrames). */
@@ -302,7 +306,7 @@ export interface Fighter {
   inHitlag: boolean;
   allowSdi: boolean;
   /** What runs when hitlag ends (post_hitlag_cb): 'damage' for the damage states' exit. */
-  postHitlag: 'damage' | null;
+  postHitlag: 'damage' | 'shield' | null;
   /** Hitstun: frames left (mv.co.damage.x0) and the flag that blocks actions (x221C_b6). */
   hitstun: number;
   inHitstun: boolean;

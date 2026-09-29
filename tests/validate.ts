@@ -63,6 +63,7 @@ export function compareTrace(name: string, rows: Row[], data: CharacterData, sta
   const res: Result = { name, frames: 0, mismatches: [] };
   if (s < 0) { res.mismatches.push({ retrace: 0, field: 'start', expected: 14, actual: -1, context: ['no grounded Wait row to start from'] }); return res; }
   const e = new Engine(data);
+  e.ucf.enabled = false; // These reference captures come from unmodified NTSC 1.02.
   const stage = fdStage();
   e.setStage(stage);
   const r0 = rows[s];
@@ -121,6 +122,7 @@ export function compareWorldTrace(name: string, rows: Row[], fox: CharacterData,
   const world = new World();
   const stage = fdStage();
   const a = world.add(new Engine(fox)), b = world.add(new Engine(sandbag));
+  a.ucf.enabled = b.ucf.enabled = false;
   world.setStage(stage);
   const r0 = rows[s], q0 = r0.p2!;
   a.spawnGrounded(r0.x, stage.segments[0], r0.facing);

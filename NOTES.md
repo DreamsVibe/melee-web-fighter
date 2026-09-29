@@ -284,6 +284,35 @@ Fox now has every move he can do alone on a stage. Where each comes from:
   `fp->x2E8` frames, which is the GuardOn animation's length (8). A digital press within
   `powershield_input_window` of the trigger crossing gives GuardReflect (power shield), which the
   traces confirm is what a digital R does from standing.
+* **Shield drops use the UCF gate adjustment** (`groundmoves.ts`, matching Slippi's UCF 0.84
+  patch at 800998A4). With an expired horizontal roll timer, a passable floor and a main stick
+  above −0.8 at the rim, the main-stick spot-dodge threshold becomes −0.8. The rim check uses
+  truncated stick magnitudes ×80 −0.0001, plus two units per axis, with squared radius >6400.
+  C-stick dodges keep priority; fresh horizontal taps still roll. Pass's original collision skip
+  is unchanged. Disc-backed adapter-report tests cover Fox and
+  Falco, both diagonal directions on all Battlefield platforms, and dodge/roll/solid-floor cases.
+* **UCF 0.84** is on by default (`src/engine/ucf.ts`; `e.ucf.enabled = false` is available to
+  reference tests). The public Slippi patches are the source:
+  https://github.com/project-slippi/slippi-ssbm-asm/tree/master/External/UCF%200.84/UCF
+  Raw signed pad samples keep two-frame movement intent before deadzones/cardinal correction.
+  Cardinal snapping requires |raw axis| ≥80 and |other axis| ≤6, for both sticks. Dashback patches
+  Turn IASA's temporary facing flip on action frame 2, with active X timer ≤1 and raw X delta² >5625.
+  Tumble gets the same fast-intent fallback when its X timer is 1 and previous |X| is below the
+  drift threshold. Crouch's rim release threshold becomes 0.59 only while X timer <1; no extra
+  crouch dash frame is granted. High shield notches at Y ≤−0.609375 require two consecutive rim
+  samples after raw Y delta² >1936 and Y timer ≤1. Normal lower notches still drop immediately.
+  The Ice Climbers partner synchronization and Zelda grounded up-B exclusion have no consumers
+  in the supported Fox/Falco roster.
+* **Hitlag displacement and shield hits** (`hitlag.ts`, `hits.ts`, `groundmoves.ts`): body SDI moves
+  six units times the stick, shield SDI moves horizontally at 0.66 of that scale, and ASDI runs
+  on hitlag exit. UCF's reset-active-timer fallback uses unreset sticky timers ≤1, previous input
+  below the SDI threshold and raw delta² >3844 (2D for body, X only for shield). It preserves the
+  shield patch's signed previous-X comparison. Consumed active timers are stamped 254.
+  Swept hitboxes test the shield joint's sphere before hurtboxes, share hit-group victims and
+  enter GuardSetOff with disc-derived damage/stun/push constants. Shield stun freezes during
+  hitlag and returns to Guard/GuardOff. Existing folders get verified NTSC 1.02 defaults for
+  newly exported constants. Tests compare UCF on/off for both characters and directions,
+  including real collision-generated damage/shield hitlag, cardinal boundaries and held inputs.
 * **Fox's specials** (`src/engine/behaviors/`): `blaster.ts` (ftfoxspecialn.c: shot when the script
   sets var 2, from RThumbNb + (0, 1.2325, 4.2636), angle `blaster_angle` mirrored when facing
   left, sounds 110103/110106), `illusion.ts` (ftfoxspecials.c), `firefox.ts` (ftfoxspecialhi.c:
@@ -507,9 +536,10 @@ nudge is added to the position before self velocity in `procUpdate`.
 
 ### Deviations (hits)
 
-* Only Fox attacks and only Sandbag gets hit. The damage states handle any fighter, but there are no
-  shields, grabs, throws, clanks, reflections or teching against a hit yet.
-* Sandbag has no controller, so there's no DI, SDI or teching; the code paths are there for later.
+* The stage/page UI pits Fox or Falco against Sandbag. The engine supports shield collisions and
+  SDI for controlled fighters, but combat grabs, throws, clanks, reflections and teching are still
+  absent. Shield break still drops the shield rather than playing the full stun sequence.
+* Sandbag has no controller, so it does not use SDI. Knockback angle DI is not implemented.
 * Hit sparks and the hitlag shake are 2D stand-ins drawn over the page.
 * On a page, Sandbag respawns beside Fox at 0% once it is past the screen edge by 12 units on any
   side. In the game it can't be KO'd.
@@ -543,7 +573,7 @@ Importer: `src/importer/stage-convert.ts`; engine loader: `loadStage` in `src/en
 * **Engine.** Walls and ceilings may now slant (Final Destination's underside): a wall line's x at the
   ECB side point's height, a ceiling's y at the fighter's x. A side point outside the wall at last
   frame's height and inside it at this one goes back out, where "the wall" at last frame's height is
-  the nearest line of the same kind and group: sliding up a slant and passing the corner between two
+  a connected line of the same kind and group: sliding up a slant and passing the corner between two
   lines both work, which a single-line crossing test missed. Floors are still flat (Final
   Destination's and Battlefield's are). `setStage` with the same stage is a no-op, and a line's
   counterpart in a new stage is found by its place among its group's lines (a page element has one
@@ -559,12 +589,41 @@ Importer: `src/importer/stage-convert.ts`; engine loader: `loadStage` in `src/en
 ### Deviations (stages)
 
 * Not Melee's camera: no tilt, no pan/zoom rules from `grGroundParam`; ours is a simple follow camera.
-* Stage parts stand still (no joint or texture animation), and no particles: Final Destination's
-  background doesn't morph.
+* Final Destination's parts stand still; its background doesn't morph. Battlefield reads joint and
+  material/texture animations (details below). Particle bytecode is not interpreted.
 * Floors must be flat; the other legal stages need slopes (Yoshi's Story), moving platforms
   (Fountain of Dreams, Randall) or transformations (Pokémon Stadium).
 * Sandbag, which can't be KO'd in the game's VS mode, respawns at revival point 1 after leaving the
   blast zones; the player at revival point 0.
+
+### Battlefield
+
+* `GrNBa.dat`, using the existing stage importer. `grGroundParam +0` is the global scale (0.8 on
+  this disc); apply it to collision, general points and the model placement. Without it, Battlefield
+  is 25% too large. Floors stay flat. The raw underside has disconnected walls in the same collision
+  group: wall continuation must follow shared endpoints, not jump to the nearest unrelated line.
+* Fighters on different-height platforms also share that group. Ground push boxes now require the
+  same floor height so the player and Sandbag don't push one another from different platforms.
+* `src/importer/stage-animation.ts` reads the first AnimJoint/MatAnimJoint trees from the gobj's
+  animation pointer arrays at +4/+8. AObjDesc: flags, end frame, FObjDesc list. FObjDesc: next,
+  u32 byte length, f32 start frame, channel/value/slope bytes, stream pointer. The gobj's +0x28
+  flag forces looping, in addition to AObj flag bit 29. Packed tracks are stored in each part's
+  `animation.json` and sampled with the existing FObj interpreter.
+* `StagePose` plays SRT and node/branch visibility channels, material RGB/alpha, texture offsets,
+  scales and Z rotation. Texture transforms use repeat/scale and negative translation/rotation.
+  Stage environment textures use a view-facing normal projection; this approximates HSD's mapping.
+* VS scenery follows [grbattle.c](https://github.com/doldecomp/melee/blob/master/src/melee/gr/grbattle.c):
+  part 6 is the stage, 1/2/4 the three backgrounds, 3 the transition; part 5 is alternate
+  single-player scenery and is excluded. Wait 2400–3599 simulation frames, play the 400-frame
+  transition, pick a different scene, then crossfade for 200 frames. The fade is a renderer
+  approximation of the two color-overlay scripts in `yakumono_param`. All scenery pauses with play.
+* Limitations: particle-emission channel 40 is retained but not played; no particle VM, full GX TEV
+  combiner, or original camera rules. Existing hit sparks, shield and recovery effects still run.
+* Disc-backed tests cover scale, platforms/drop-throughs, both characters' ledges, underside
+  recovery without horizontal teleportation, respawn, push separation and animation loops/visibility/
+  texture scrolling. `SCENARIO=stage STAGE=battlefield` checks import, rendering, pause and scene
+  transitions in Chrome. Node tools use positional file reads because some Windows Node versions
+  truncate `openAsBlob`'s size for padded ISOs over 4 GiB; browser imports still use File slices.
 
 ## Ledges
 
