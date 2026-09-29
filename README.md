@@ -229,3 +229,7 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
   `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag, shoots, switches to
   Falco and saves screenshots (`CHARACTER=falco` starts as Falco).
 * `NOTES.md` has the research notes (formats, offsets, decomp functions) and the list of deviations.
+
+## Contributors
+
+* [kream-cheese](https://github.com/kream-cheese): Falco, and ledges to catch and hang from.

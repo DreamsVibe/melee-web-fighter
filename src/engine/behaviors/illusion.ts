@@ -1,6 +1,8 @@
 // Fox's side special (Illusion), ported from ft/kinds/ftFox/ftfoxspecials.c. The dash itself is the
 // animation's root motion; B during it cuts it short. The last four positions are kept for the
-// afterimages the renderer draws. In the air it catches ledges the way it faces.
+// afterimages the renderer draws; the dash also leaves an afterimage item that carries the hitbox
+// (it/kinds/itfoxillusion.c, Engine.spawnAfterimage). In the air it catches ledges the way it
+// faces. Falco's Phantasm runs the same code.
 import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { BTN } from '../pad';
@@ -36,20 +38,39 @@ function airEnter(e: Engine): void {
   fp.jumpsUsed = e.a.max_jumps;
 }
 
+/** ftPartGetRotX(fp, 0): TopN's X rotation in the current pose. */
+function topRotX(e: Engine): number {
+  e.updatePose();
+  return e.fighter.local[(e.data.parts[0] ?? 0) * 9];
+}
+
 /** ftFox_SpecialS_SetVars: the trail starts at the dash's starting point. */
 function dashEnter(e: Engine, msid: number): void {
   const fp = e.fighter;
   e.changeMotion(msid, MF.None, 0, 1);
-  fp.ghosts.length = 0;
-  for (let i = 0; i < 4; i++) fp.ghosts.push(fp.pos.x, fp.pos.y);
+  fp.ghosts.length = fp.ghostRot.length = 0;
+  const rot = topRotX(e);
+  for (let i = 0; i < 4; i++) { fp.ghosts.push(fp.pos.x, fp.pos.y); fp.ghostRot.push(rot); }
 }
 
-/** ftFox_SpecialS_SetPhys: shift the trail and add this frame's position. */
+/** ftFox_SpecialS_SetPhys: shift the trail and add this frame's position and TopN rotation. */
 function trail(e: Engine): void {
-  const g = e.fighter.ghosts;
+  const g = e.fighter.ghosts, r = e.fighter.ghostRot;
   if (g.length < 8) return;
   for (let i = 6; i >= 2; i -= 2) { g[i] = g[i - 2]; g[i + 1] = g[i - 1]; }
   g[0] = e.fighter.pos.x; g[1] = e.fighter.pos.y;
+  r[3] = r[2]; r[2] = r[1]; r[1] = r[0]; r[0] = topRotX(e);
+}
+
+/**
+ * ftFox_SpecialS_CreateGhostItem: when the dash's script sets var 2 to 1, the afterimage item appears
+ * (Fox's Illusion, Falco's Phantasm), carrying the move's hitbox.
+ */
+function afterimageCheck(e: Engine): void {
+  const fp = e.fighter;
+  if (fp.cmdVars[2] !== 1) return;
+  fp.cmdVars[2] = 0;
+  e.spawnAfterimage();
 }
 
 function endEnter(e: Engine): void {
@@ -106,14 +127,14 @@ const defs: StateDef[] = [
   },
   {
     id: FX_S.Dash, name: 'SpecialS', move: 'SpecialS',
-    anim(e) { if (!e.isFramesRemaining()) endEnter(e); },
+    anim(e) { if (!e.isFramesRemaining()) endEnter(e); afterimageCheck(e); },
     iasa: bToEnd,
     phys(e) { groundRootMotionSet(e.fighter, e.a.ground_friction, e.fighter.facing); trail(e); },
     coll(e) { groundToAir(e, FX_S.AirDash); },
   },
   {
     id: FX_S.AirDash, name: 'SpecialAirS', move: 'SpecialAirS',
-    anim(e) { if (!e.isFramesRemaining()) endEnter(e); },
+    anim(e) { if (!e.isFramesRemaining()) endEnter(e); afterimageCheck(e); },
     iasa: bToEnd,
     phys(e) { airRootMotion(e.fighter); trail(e); },
     coll(e) { airToGround(e, FX_S.Dash); },

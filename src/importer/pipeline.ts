@@ -9,7 +9,7 @@ import { writeAnim } from '../shared/animfile';
 import { ftDataRoot, readActionTable, readFigatree, type ActionEntry } from './actions';
 import { convertSounds } from './sounds-convert';
 import { convertMoves, FOX_BEHAVIORS } from './moves-convert';
-import { readAttributes, readCommon, readExtras, readHurtboxes, readLaser, tidy } from './data-convert';
+import { readAttributes, readCommon, readExtras, readHurtboxes, readIllusion, readLaser, tidy } from './data-convert';
 import { FOX_SUBMOTIONS, SANDBAG_SUBMOTIONS } from './submotions';
 import { FOX_SPECIAL_FIELDS, SANDBAG_SPECIAL_FIELDS, type Field } from '../shared/attributes';
 import { STAGE_LIST } from '../shared/stages';
@@ -43,6 +43,8 @@ export interface CharacterSpec {
   bank?: { file: string; index: number };
   /** Fox's and Falco's blaster shot (article 0). */
   laser?: boolean;
+  /** The article index of the side special's afterimage item (Fox's Illusion: 2, Falco's Phantasm: 3). */
+  illusion?: number;
   /** Joint constraints the character's code attaches to its model (HSD RObj). */
   constraints?: ConstraintDef[];
 }
@@ -55,7 +57,7 @@ export interface ConstraintDef { joint: number; position?: number[]; aim?: numbe
 
 export const FOX: CharacterSpec = {
   id: 'fox', name: 'Fox', code: 'Fx', kind: 1, submotions: FOX_SUBMOTIONS, specialFields: FOX_SPECIAL_FIELDS,
-  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/fox.ssm', index: 11 }, laser: true,
+  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/fox.ssm', index: 11 }, laser: true, illusion: 2,
 };
 /**
  * Falco runs on Fox's code: ftFc_Init_MotionStateTable points at the ftFx functions, with the same
@@ -64,7 +66,7 @@ export const FOX: CharacterSpec = {
  */
 export const FALCO: CharacterSpec = {
   id: 'falco', name: 'Falco', code: 'Fc', kind: 0x16, submotions: FOX_SUBMOTIONS, specialFields: FOX_SPECIAL_FIELDS,
-  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/falco.ssm', index: 10 }, laser: true,
+  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/falco.ssm', index: 10 }, laser: true, illusion: 3,
 };
 export const SANDBAG: CharacterSpec = {
   id: 'sandbag', name: 'Sandbag', code: 'Sb', kind: 0x20, submotions: SANDBAG_SUBMOTIONS,
@@ -220,7 +222,10 @@ export async function buildFolder(disc: Disc, progress: Progress, log: Log): Pro
       // Push box (ftData +0x50): x offset and half width, for fighters shoving each other on the ground.
       push: [archive.f32(archive.ptr(root + 0x50)), archive.f32(archive.ptr(root + 0x50) + 4)].map(tidy),
       constraints: spec.constraints ?? [],
-      articles: spec.laser ? { laser: readLaser(archive) } : {},
+      articles: {
+        ...(spec.laser ? { laser: readLaser(archive) } : {}),
+        ...(spec.illusion !== undefined ? { illusion: readIllusion(archive, spec.illusion) } : {}),
+      },
     };
     files.push({ path: dir + 'character.json', data: json(character) });
   }

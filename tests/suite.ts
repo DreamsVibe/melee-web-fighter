@@ -519,3 +519,49 @@ test('sandbag: hits add percent, "no damage" keeps 0% and knocks back as at 0%, 
   console.log(`      after KO: ${f.motionName} at (${f.pos.x.toFixed(1)}, ${f.pos.y.toFixed(1)}), ${f.percent}%`);
   assert(f.percent === 0 && Math.abs(f.pos.x - (dmg.a.fighter.pos.x + 22)) < 1 && f.motionName === 'Fall', 'respawn');
 }, true);
+
+test("side special: the dash's afterimage item carries the hit (Fox's Illusion, Falco's Phantasm)", async (disc) => {
+  const { foxData, falcoData, sandbagData, finalDestination, pad } = await import('./sim');
+  const { Engine } = await import('../src/engine/engine');
+  const { World } = await import('../src/engine/world');
+  type P = Parameters<typeof pad>[0];
+  const sb = await sandbagData(disc);
+  const hop: Array<[number, P]> = [[1, { buttons: 'X' }], [4, {}]];
+  // Ground, air against a standing Sandbag, and air against Sandbag in the air beside the fighter.
+  const dash = (data: Awaited<ReturnType<typeof foxData>>, pre: Array<[number, P]>, sbAir: boolean) => {
+    const w = new World(), st = finalDestination();
+    const a = w.add(new Engine(data)), b = w.add(new Engine(sb));
+    w.setStage(st);
+    a.spawnGrounded(0, st.segments[0], 1);
+    b.spawnGrounded(30, st.segments[0], -1);
+    for (let i = 0; i < 5; i++) w.step([pad()]);
+    for (const [n, p] of pre) for (let i = 0; i < n; i++) w.step([pad(p)]);
+    if (sbAir) b.spawn(a.fighter.pos.x + 25, a.fighter.pos.y + 4, -1);
+    let hitlag = false, maxItems = 0, itemsAfter = 0, angle = -1, kbY = 0;
+    for (const [n, p] of [[1, { sx: 127, buttons: 'B' }], [80, {}]] as Array<[number, P]>) for (let i = 0; i < n; i++) {
+      const before = b.fighter.percent;
+      w.step([pad(p)]);
+      hitlag ||= a.fighter.hitlag > 0;
+      maxItems = Math.max(maxItems, a.afterimages.length);
+      if (angle < 0 && b.fighter.percent !== before) { angle = b.fighter.kbAngle; kbY = b.fighter.kbVel.y; }
+      if (a.fighter.motionId < 347 || a.fighter.motionId > 352) itemsAfter = Math.max(itemsAfter, a.afterimages.length);
+    }
+    return { percent: b.fighter.percent, angle, kbY, hitlag, maxItems, itemsAfter };
+  };
+  // Angles from the ground and in the air, from each one's afterimage item on the disc.
+  const expect: Array<[Awaited<ReturnType<typeof foxData>>, number, number]> = [[await foxData(disc), 80, 80], [await falcoData(disc), 65, 270]];
+  for (const [data, groundAngle, airAngle] of expect) {
+    const art = data.illusion;
+    assert(!!art && art.states.length === 3, `${data.name}: afterimage item imported`);
+    const cases = { ground: dash(data, [], false), air: dash(data, hop, false), 'air vs air': dash(data, hop, true) };
+    console.log(`      ${data.name.padEnd(6)} scale ${art!.scale}; ` + Object.entries(cases).map(([k, r]) => `${k} ${r.percent}% ${r.angle}° kb y ${r.kbY.toFixed(2)}`).join('; '));
+    for (const [name, r] of Object.entries(cases)) {
+      assert(r.percent === 7, `${data.name} ${name}: should deal 7%, dealt ${r.percent}`);
+      assert(r.angle === (name === 'ground' ? groundAngle : airAngle), `${data.name} ${name}: angle ${r.angle}`);
+      assert(!r.hitlag, `${data.name} ${name}: the item's hit gives the attacker no hitlag`);
+      assert(r.maxItems === 1 && r.itemsAfter === 0, `${data.name} ${name}: one afterimage, gone after the move`);
+    }
+    // Falco's aerial Phantasm spikes an airborne opponent; a grounded one bounces off the floor.
+    if (airAngle === 270) assert(cases['air vs air'].kbY < 0 && cases.air.kbY > 0, `${data.name}: spike ${cases['air vs air'].kbY}, bounce ${cases.air.kbY}`);
+  }
+}, true);

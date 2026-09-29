@@ -239,6 +239,16 @@ export function attackColl(victim: Engine, all: Engine[]): void {
         if (hurt && registerHit(attacker, h, victim, hurt, a, b, p.x, p.vx, p.hitboxes, p.attackId, p.attackInstance, true) && !invincible(victim.fighter)) p.hit = true;
       }
     }
+    // The side special's afterimage: an item that doesn't move (the hit pushes away from where it
+    // is) and isn't used up by hitting (itFoxIllusion_Logic14_DmgDealt).
+    for (const img of attacker.afterimages) {
+      if (img.dead) continue;
+      for (const h of img.hitboxes) {
+        if (!canHit(h, victim)) continue;
+        const hurt = hit(h);
+        if (hurt) registerHit(attacker, h, victim, hurt, a, b, img.x, 0, img.hitboxes, img.attackId, img.attackInstance, true);
+      }
+    }
   }
 }
 

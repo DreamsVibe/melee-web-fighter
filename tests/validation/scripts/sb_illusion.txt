@@ -1,0 +1,7 @@
+# p2 sandbag
+# Run towards Sandbag, stop, then Illusion through it: the afterimage's hit sends it back behind Fox.
+230 sx=127
+245
+300 sx=127 B
+301
+700

@@ -113,3 +113,17 @@ export function readLaser(a: Archive): { lifetime: number; scale: number; states
     states: [0, 1].map((i) => readItemScript(a, a.ptr(states + 0x10 * i + 0xc))),
   };
 }
+
+/**
+ * The side special's afterimage (Fox's Illusion: article 2; Falco's Phantasm: article 3, per each one's
+ * OnLoad): its two lifetimes (itFoxIllusion attributes: with a hitbox, then fading), its scale
+ * (ItemCommonData x60) and the command scripts of its three item states (it_803F6818).
+ */
+export function readIllusion(a: Archive, index: number): { lifetime: number; endLifetime: number; scale: number; states: ItemCmd[][] } {
+  const article = a.ptr(a.ptr(ftDataRoot(a) + 0x48) + 4 * index);
+  const attr = a.ptr(article + 4), states = a.ptr(article + 0xc);
+  return {
+    lifetime: tidy(a.f32(attr)), endLifetime: tidy(a.f32(attr + 4)), scale: tidy(a.f32(a.ptr(article) + 0x60)),
+    states: [0, 1, 2].map((i) => readItemScript(a, a.ptr(states + 0x10 * i + 0xc))),
+  };
+}
