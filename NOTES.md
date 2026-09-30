@@ -685,7 +685,7 @@ soon as the spec exists; the work is the specials. Captain Falcon was done this 
 
 Pitfalls met so far:
 
-* Swapping player 1's pick after the select screen (`--p1-ckind`) runs the game out of memory for
+* Swapping player 1's pick in memory after the select screen (tried in melee-unlocked) runs the game out of memory for
   characters bigger than Fox (`lbmemory.c` "memp_kouho"): pick on the select screen instead.
 * In the decomp's `ftColl` attack loop, `victim_fp` is the one whose hitbox it is.
 * `ft_80081D0C` returns a `GroundOrAir` where GA_Air (1) means it touched the floor.
