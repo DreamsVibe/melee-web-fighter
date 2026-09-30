@@ -5,6 +5,7 @@ import type { Cmd } from '../shared/move';
 import type { SkeletonJoint } from '../shared/modelfile';
 import type { PadState } from './pad';
 import type { Segment, StageData } from './stagetypes';
+import type { Kit } from './statedefs';
 
 export type Named = Record<string, number>;
 
@@ -63,6 +64,10 @@ export interface CharacterData {
    * long it lingers after, its scale, and its item scripts (0 from the ground, 1 from the air, 2 after).
    */
   illusion: { lifetime: number; endLifetime: number; scale: number; states: ItemCmd[][] } | null;
+  /** Its motion states (the common ones plus its own from 341) and special-move entry points. */
+  kit: Kit;
+  /** Move id (FtMoveId, for stale moves) of each own motion state, from its motion table. */
+  moveIds: Map<number, number>;
 }
 
 export interface HurtboxDef { bone: number; height: number; grabbable: boolean; a: [number, number, number]; b: [number, number, number]; radius: number }
@@ -263,6 +268,18 @@ export interface Fighter {
   local: Float32Array;
   world: Float32Array;
   poseDirty: boolean;
+  /**
+   * A second animation blended over the pose (ftCo_Fall_Anim_Inner: Fall and FallAerial lean into the
+   * drift with FallF/B), with its own frame, and the weight of its pose (0 = none).
+   */
+  blend: { move: CompiledMove | null; frame: number; first: boolean; weight: number };
+  /**
+   * The state's reactions (cleared by every state change): dealing damage this frame (deal_dmg_cb), and
+   * an inert hitbox touching someone (hurtbox_detect_cb, with `detected` = whom, unk_gobj).
+   */
+  onDealDamage: ((e: import('./engine').Engine) => void) | null;
+  onDetect: ((e: import('./engine').Engine) => void) | null;
+  detected: object | null;
   // Damage (fp->dmg): percent, what this frame's hits add (x1838), the strongest integer damage
   // (x183C, sets hitlag), knockback to apply (kb_applied) with its angle, direction and hurtbox
   // height, the damage this fighter dealt this frame (x1914), and frames since the last hit.

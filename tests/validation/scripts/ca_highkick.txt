@@ -1,0 +1,9 @@
+# p1 captain
+# Full jump and double jump, then Falcon Kick high up so it ends before landing (SpecialAirLwEndAir).
+200 X
+215
+235 X
+236
+245 sy=-127 B
+246
+500

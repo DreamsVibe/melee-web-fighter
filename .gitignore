@@ -37,3 +37,4 @@ dist/
 .DS_Store
 Thumbs.db
 dist-tests/
+.tools-out/

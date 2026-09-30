@@ -20,7 +20,7 @@ import {
   specialHiCheck, specialLwCheck, specialNCheck, specialSCheck,
 } from './groundmoves';
 
-export { STATES, MS, specials, type StateDef, type SpecialHooks } from './statedefs';
+export { STATES, MS, addStates, type Kit, type StateDef, type SpecialHooks } from './statedefs';
 
 const f = Math.fround;
 const abs = Math.abs;
@@ -146,6 +146,8 @@ export function fallEnter(e: Engine): void {
   const fp = e.fighter;
   e.changeMotion(MS.Fall, MF.KeepFastFall, 0, 1);
   clampAirDrift(fp, e.a);
+  fp.mv.fallBlendMove = 0;
+  fp.mv.fallBlend = 0;
   if (fp.ga === GA.Ground) e.toAir();
 }
 
@@ -290,6 +292,8 @@ export function jumpAerialEnter(e: Engine): void {
 
 function fallAerialEnter(e: Engine): void {
   e.changeMotion(MS.FallAerial, MF.None, 0, 1);
+  e.fighter.mv.fallBlendMove = 0;
+  e.fighter.mv.fallBlend = 0;
 }
 
 /** ftCo_80096900 → FallSpecial (helpless fall). */
@@ -722,8 +726,40 @@ for (const [id, name] of [[MS.JumpAerialF, 'JumpAerialF'], [MS.JumpAerialB, 'Jum
   });
 }
 
+/**
+ * ftCo_Fall_Anim_Inner + ftCo_800CC988: falling leans into the drift. Past fall_blend_threshold of the
+ * maximum drift, the forward or backward fall animation is blended in, its weight easing towards how
+ * far past the threshold the drift is. The blend changes the pose, so it moves the ECB too.
+ */
+function fallBlend(e: Engine, moves: readonly [string, string, string]): void {
+  const fp = e.fighter, a = e.a, c = e.c;
+  let frac = f(fp.selfVel.x / a.air_drift_max);
+  if (frac > 1) frac = 1; else if (frac < -1) frac = -1;
+  const mag = abs(frac);
+  let smid = 0, target = 0;
+  if (mag > c.fall_blend_threshold) {
+    smid = frac * fp.facing > 0 ? 1 : 2;
+    target = f(f(mag - c.fall_blend_threshold) / f(1 - c.fall_blend_threshold));
+  }
+  const prev = fp.mv.fallBlend ?? 0;
+  const w = f(prev + f(c.fall_blend_rate * f(target - prev)));
+  fp.mv.fallBlend = w;
+  if (w && smid !== (fp.mv.fallBlendMove ?? 0)) {
+    // ftAnim_8006EDD0: the other animation starts at the current frame, and is interpreted once.
+    e.setBlendAnim(moves[smid], fp.animFrame);
+    e.blendAnimStep();
+    fp.mv.fallBlendMove = smid;
+  }
+  if (w) e.blendAnimStep();
+  fp.blend.weight = w;
+}
+const FALL_MOVES = ['Fall', 'FallF', 'FallB'] as const;
+const FALL_AERIAL_MOVES = ['FallAerial', 'FallAerialF', 'FallAerialB'] as const;
+
 def({
   id: MS.Fall, name: 'Fall', move: 'Fall',
+  // ftCo_Fall_Anim: not for Sandbag (is_sandbag).
+  anim(e) { if (e.data.id !== 'sandbag') fallBlend(e, FALL_MOVES); },
   iasa(e) { airIasa(e); },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
   coll(e) { collAirLand(e, landFromAir, true, 'facing'); },
@@ -731,6 +767,7 @@ def({
 
 def({
   id: MS.FallAerial, name: 'FallAerial', move: 'FallAerial',
+  anim(e) { fallBlend(e, FALL_AERIAL_MOVES); },
   iasa(e) { airIasa(e); },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
   coll(e) { collAirLand(e, landFromAir, true, 'facing'); },

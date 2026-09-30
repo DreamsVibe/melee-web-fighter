@@ -1,0 +1,14 @@
+# p1 captain
+# Captain Falcon with the inputs of aerial_f.txt.
+# f aerial from a short hop without L-cancel, then with an analog L-cancel shortly before landing.
+200 X
+201
+204 sx=100 A
+205
+300 X
+301
+304 sx=100 A
+305
+319 l=90
+320
+400

@@ -21,6 +21,15 @@ export const FOX_BEHAVIORS: Array<[RegExp, string]> = [
   [/^Special(Air)?Lw/, 'shine'], [/^SpecialAppeal/, 'appeal'],
 ];
 
+/**
+ * Captain Falcon's (ft/kinds/ftCaptain): Falcon Punch, Raptor Boost, Falcon Dive (with its catch and
+ * throw) and Falcon Kick. SpecialHiThrow1 is the kick's rebound off a wall, despite its name.
+ */
+export const CAPTAIN_BEHAVIORS: Array<[RegExp, string]> = [
+  [/^Special(Air)?N$/, 'falconpunch'], [/^Special(Air)?S/, 'raptorboost'], [/^SpecialHiThrow1$/, 'falconkick'],
+  [/^Special(Air)?Hi/, 'falcondive'], [/^Special(Air)?Lw/, 'falconkick'],
+];
+
 /** Emits the script at `start` and everything it jumps to as one body with labels. */
 export function scriptBody(a: Archive, start: number): { body: Cmd[]; raw: number[][] } {
   const scripts: RawCommand[][] = [];

@@ -7,7 +7,7 @@
 import type { Engine } from './engine';
 import { MF, PAD_LR } from './engine';
 import { BTN } from './pad';
-import { def, MS, specials } from './statedefs';
+import { def, MS } from './statedefs';
 import { groundAttackPhysics, groundFriction, groundRootMotion, groundDeaccel, selfFromGround } from './physics';
 import {
   collFallOff, collStop, dashCheck, jumpCheck, kneeBendEnter, passEnter, passInput, squatCheck,
@@ -25,31 +25,31 @@ const cstickAngle = (e: Engine) => Math.atan2(e.fighter.input.cy, abs(e.fighter.
 /** ftCo_SpecialS_CheckInput: side B, turning first when the stick points back. */
 export function specialSCheck(e: Engine): boolean {
   const fp = e.fighter;
-  if (!specials.groundS || fp.counters.sideB !== 0) return false;
+  if (!e.specials.groundS || fp.counters.sideB !== 0) return false;
   if (fp.input.lx * fp.facing < -e.c.special_s_turn_threshold) fp.facing = fp.input.lx >= 0 ? 1 : -1;
   fp.grVel = f(fp.grVel + -f(fp.grVel * f(1 - e.a.specials_ground_speed_retention)));
-  specials.groundS(e);
+  e.specials.groundS(e);
   return true;
 }
 
 /** ftCo_Attack100_CheckInput (the game's name for it): up B. */
 export function specialHiCheck(e: Engine): boolean {
-  if (!specials.groundHi || e.fighter.counters.upB !== 0) return false;
-  specials.groundHi(e);
+  if (!e.specials.groundHi || e.fighter.counters.upB !== 0) return false;
+  e.specials.groundHi(e);
   return true;
 }
 
 /** ftCo_800D6824: neutral B. */
 export function specialNCheck(e: Engine): boolean {
-  if (!specials.groundN || e.fighter.counters.neutralB !== 0) return false;
-  specials.groundN(e);
+  if (!e.specials.groundN || e.fighter.counters.neutralB !== 0) return false;
+  e.specials.groundN(e);
   return true;
 }
 
 /** ftCo_800D68C0: down B. */
 export function specialLwCheck(e: Engine): boolean {
-  if (!specials.groundLw || e.fighter.counters.downB !== 0) return false;
-  specials.groundLw(e);
+  if (!e.specials.groundLw || e.fighter.counters.downB !== 0) return false;
+  e.specials.groundLw(e);
   return true;
 }
 
@@ -58,26 +58,26 @@ export function specialAirCheck(e: Engine): boolean {
   const fp = e.fighter, c = e.c, i = fp.input;
   if (!(i.pressed & BTN.B)) return false;
   if (i.ly >= c.special_lw_threshold) {
-    if (!specials.airHi) return false;
-    specials.airHi(e);
+    if (!e.specials.airHi) return false;
+    e.specials.airHi(e);
     return true;
   }
   if (i.ly <= -c.special_lw_threshold) {
-    if (!specials.airLw) return false;
-    specials.airLw(e);
+    if (!e.specials.airLw) return false;
+    e.specials.airLw(e);
     return true;
   }
   if (abs(i.lx) >= c.special_s_threshold) {
-    if (!specials.airS) return false;
+    if (!e.specials.airS) return false;
     if (i.lx * fp.facing < -c.special_s_turn_threshold) fp.facing = i.lx >= 0 ? 1 : -1;
-    specials.airS(e);
+    e.specials.airS(e);
     return true;
   }
-  if (!specials.airN) return false;
+  if (!e.specials.airN) return false;
   if (fp.timers.lxDuration < c.special_n_turn_window && ((fp.facing === -1 && fp.x2228_b7 === 1) || (fp.facing === 1 && fp.x2228_b7 === 0))) {
     fp.facing = -fp.facing;
   }
-  specials.airN(e);
+  e.specials.airN(e);
   return true;
 }
 
@@ -93,8 +93,8 @@ export function appealCheck(e: Engine): boolean {
 
 /** A character's own taunt on D-pad down (ftFx_AppealS_CheckInput for Fox and Falco). */
 export function charAppealCheck(e: Engine): boolean {
-  if (!specials.appeal || !(e.fighter.input.pressed & BTN.DDOWN)) return false;
-  specials.appeal(e);
+  if (!e.specials.appeal || !(e.fighter.input.pressed & BTN.DDOWN)) return false;
+  e.specials.appeal(e);
   return true;
 }
 

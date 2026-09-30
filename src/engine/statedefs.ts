@@ -32,6 +32,7 @@ export const MS = {
   EscapeF: 233, EscapeB: 234, EscapeN: 235, EscapeAir: 236, Pass: 244, AppealSR: 264, AppealSL: 265,
 } as const;
 
+/** The common motion states (ids below 341), shared by every character. */
 export const STATES = new Map<number, StateDef>();
 export const def = (d: StateDef) => STATES.set(d.id, d);
 
@@ -47,4 +48,13 @@ export interface SpecialHooks {
   /** A character's own taunt on D-pad down (Fox and Falco call their Arwing). */
   appeal?(e: Engine): void;
 }
-export const specials: SpecialHooks = {};
+
+/**
+ * One character's motion states and special entry points. Motion ids from 341 mean something different
+ * for each character (Fox's 347 is Illusion, Falcon's is Falcon Punch), so each character gets its own
+ * table of its own states (what its behavior modules add); anything else is looked up in STATES.
+ */
+export interface Kit { states: Map<number, StateDef>; specials: SpecialHooks }
+export const newKit = (): Kit => ({ states: new Map(), specials: {} });
+/** A behavior module adds its states and entry points to a character's kit. */
+export const addStates = (kit: Kit, defs: StateDef[]) => { for (const d of defs) kit.states.set(d.id, d); };

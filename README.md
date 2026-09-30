@@ -1,6 +1,6 @@
 # Melee Web Fighter
 
-Play Fox or Falco from Super Smash Bros. Melee on any webpage. Every line of text, image and box on
+Play Fox, Falco or Captain Falcon from Super Smash Bros. Melee on any webpage. Every line of text, image and box on
 the page becomes a platform he can stand on and drop through, and images, buttons and boxes have
 ledges at their top corners to catch and hang from. Play with a GameCube controller, any gamepad or
 the keyboard. Your fighter never changes the page: his attacks and lasers are drawn on
@@ -9,17 +9,18 @@ his own overlay.
 <img width="1714" height="963" alt="meleefighterweb" src="https://github.com/user-attachments/assets/e7487902-f118-458f-b790-ec02106ef9b2" />
 
 
-**Pick Fox or Falco** in the extension's settings; a page that already has a fighter on it switches
-at once. Falco runs on the same code as Fox, as he does in the game, with his own data: he's
-heavier, jumps higher, falls slower, and his lasers make opponents flinch.
+**Pick Fox, Falco or Captain Falcon** in the extension's settings; a page that already has a fighter
+on it switches at once. Falco runs on the same code as Fox, as he does in the game, with his own data:
+he's heavier, jumps higher, falls slower, and his lasers make opponents flinch. Captain Falcon has his
+own specials: Falcon Punch (angle it in the air), Raptor Boost, Falcon Dive and Falcon Kick.
 
 **There's Melee's Sandbag to hit.** It stands next to your fighter and takes hits like in the game:
 damage adds up and knocks it further, strong hits send it tumbling. When it leaves the screen it
-comes back at 0%. Fox's moveset and his hits on Sandbag are checked frame by frame against the real
-game.
+comes back at 0%. Fox's and Captain Falcon's movesets and their hits on Sandbag are checked frame by
+frame against the real game.
 
-**Nothing from the game is included.** The extension is code only (about 250 KB). Fox's, Falco's
-and Sandbag's models, animations, sounds and moves are read in your browser from **your own** Melee disc
+**Nothing from the game is included.** The extension is code only (about 280 KB). Every character's
+models, animations, sounds and moves are read in your browser from **your own** Melee disc
 image and stored locally. Nothing is uploaded anywhere.
 
 ## Quick install (about 2 minutes)
@@ -70,10 +71,12 @@ bind Y, L and the C-stick, which have no keys by default. On the keyboard a dire
 smash; hold Shift as well for a tilt. Falling off the
 screen respawns your fighter at the top.
 
-Fox and Falco have their whole movesets: dash dance, wavedash and waveland, short hop and fast fall, dropping
+All three have their whole movesets: dash dance, wavedash and waveland, short hop and fast fall, dropping
 through platforms, jabs, tilts, chargeable smashes, dash attack, all five aerials with L-cancel and
-auto-cancel, Blaster, Illusion/Phantasm, Firefox/Fire Bird (aimable), Reflector with multishine
-and waveshine, light and power shield, rolls, spot dodge, grabs, and both taunts.
+auto-cancel, light and power shield, rolls, spot dodge, grabs and taunts. Fox and Falco add Blaster,
+Illusion/Phantasm, Firefox/Fire Bird (aimable) and Reflector with multishine and waveshine; Captain
+Falcon adds Falcon Punch, Raptor Boost, Falcon Dive and Falcon Kick. Falcon Dive doesn't grab yet (no
+grabs catch anyone so far).
 
 **Ledges.** Fall past the top corner of an image, button or box while facing it and you catch the
 ledge, as in Melee: you're briefly intangible and get your double jump back. From the ledge, push
@@ -125,14 +128,13 @@ The adapter helper is Windows only for now. On Mac and Linux, use a gamepad or t
 
 Right-click the toolbar icon → **Options**:
 
-* which character you play (Fox or Falco)
+* which character you play (Fox, Falco or Captain Falcon)
 * updates and the changelog
 * the adapter's status, a live input readout, which adapter port to use, and the gamepad and
   keyboard mappings
 * Sandbag: whether it appears, and whether it takes damage (off: it stays at 0% and every hit knocks it
   back as at 0%)
-* your fighter's size on the page (set as Fox's height; Falco is drawn to the same scale, a little
-  taller)
+* your fighter's size on the page (set as Fox's height; the others are drawn to the same scale)
 * volume
 * debug draw (collision, ECB, hitboxes, input display)
 * plugins (try **moon gravity**)
@@ -140,8 +142,8 @@ Right-click the toolbar icon → **Options**:
 
 ## Modding
 
-After an import, each character is a folder of plain files (`characters/fox/`,
-`characters/falco/` and `characters/sandbag/`, all laid out the same way):
+After an import, each character is a folder of plain files (`characters/fox/`, `characters/falco/`,
+`characters/captain/` and `characters/sandbag/`, all laid out the same way):
 
 ```
 characters/fox/
@@ -179,7 +181,8 @@ frame 42  iasa
 * Commands the engine doesn't model stay as `raw 0x…` words, so every file converts back to the
   game's bytes exactly (the tests check this round trip).
 * `behavior shine` in a header attaches a character behavior module (Fox and Falco have `blaster`,
-  `illusion`, `firefox`, `shine` and `appeal`). See `src/engine/behaviors/`.
+  `illusion`, `firefox`, `shine` and `appeal`; Captain Falcon has `falconpunch`, `raptorboost`,
+  `falcondive` and `falconkick`). See `src/engine/behaviors/`.
 
 **Plugins** are TypeScript objects with optional hooks: `input`, `frameStart`, `frameEnd`,
 `stateEnter`, `stateExit`, `landing`, `hitboxContact`, `attributes`, `render` (see
@@ -204,18 +207,29 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
     and the rapid jab, tilts, smashes (charged too), aerials, the shine, lasers, launches, tumbling,
     landing lying down and getting up, phantom hits and stale moves. Sandbag's state, animation
     frame, position, knockback, percent and hitlag are compared every frame too.
+  * The `ca_*` scripts run as Captain Falcon (`# p1 captain`: the prelude picks him on the character
+    select screen), with the same inputs as Fox's plus his own specials (`ca_airkick`, `ca_sb_kick`, ...).
+  * `VALIDATE=ca_ node dist-tests/run.js validation` (after `node build.mjs --tests`) runs only the
+    traces whose names start with that.
   * The reference traces come from [melee-unlocked](https://github.com/DreamsVibe/melee-unlocked) built from its
     `fighter-trace` branch. Record them with
-    `python tests/validation/run_reference.py --melee-unlocked C:/melee-unlocked`.
+    `python tests/validation/run_reference.py --melee-unlocked C:/melee-unlocked` (`-j 8` runs eight at
+    once). `tests/validation/search.py` finds input timings: it records variants of a script template
+    and reports which reach a given state (for example a hit on Sandbag).
   * The traces go to `tests/expected/`, which is git-ignored because they come from your disc.
   * `npm test` then replays the same pads through the web engine and compares every frame: position
     within 0.01 units, motion and frame exact.
   * `tools/tracediff.ts` prints the game and the engine side by side for a range of frames, and
-    `tools/datx.ts` explores the disc's archives (roots, hex, words, pointer paths). Both say how to
-    run them at the top.
+    `tools/datx.ts` explores the disc's archives (roots, hex, words, pointer paths). Run any tool with
+    `node tools/run.mjs <tool> [args]`.
+* Adding a character: `node tools/run.mjs fighter-gen ftCaptain captain` writes its action names,
+  special attributes and motion table from the decomp into `src/shared/fighters/`, and prints what its
+  code calls that the engine hasn't ported yet. `node tools/run.mjs decomp-fn <function>` prints decomp
+  functions, and `node tools/run.mjs charcheck captain` imports the disc in Node and lists the script
+  commands the engine doesn't run. NOTES.md "Adding a character" has the whole workflow.
 * `node tools/e2e.mjs <folder>` checks the extension end to end in Chrome: it loads a copy of
   `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag, shoots, switches to
-  Falco and saves screenshots (`CHARACTER=falco` starts as Falco).
+  Falco and saves screenshots (`CHARACTER=falco` or `CHARACTER=captain` starts as that character).
 * `NOTES.md` has the research notes (formats, offsets, decomp functions) and the list of deviations.
 
 ## Contributors

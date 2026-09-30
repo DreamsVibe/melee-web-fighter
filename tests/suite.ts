@@ -179,6 +179,40 @@ async function checkEveryMove(disc: Disc, which: 'fox' | 'falco'): Promise<void>
 test("engine: every one of Fox's moves starts, plays and returns to standing", (disc) => checkEveryMove(disc, 'fox'), true);
 test("engine: every one of Falco's moves starts, plays and returns to standing", (disc) => checkEveryMove(disc, 'falco'), true);
 
+test("engine: every one of Captain Falcon's moves starts, plays and returns to standing", async (disc) => {
+  const { charData, newEngine, pad } = await import('./sim');
+  const data = await charData(disc, 'captain');
+  type P = Parameters<typeof pad>[0];
+  const hop: Array<[number, P]> = [[1, { buttons: 'X' }], [8, {}]];
+  const cases: Array<{ name: string; steps: Array<[number, P]>; expect: string[] }> = [
+    { name: 'jabs', steps: [[1, { buttons: 'A' }], [4, {}], [1, { buttons: 'A' }], [4, {}], [1, { buttons: 'A' }]], expect: ['Attack11', 'Attack12'] },
+    { name: 'forward smash', steps: [[1, { sx: 127, buttons: 'A' }]], expect: ['AttackS4S'] },
+    { name: 'knee (forward air)', steps: [...hop, [1, { sx: 127, buttons: 'A' }]], expect: ['AttackAirF'] },
+    { name: 'Falcon Punch', steps: [[1, { buttons: 'B' }]], expect: ['SpecialN'] },
+    { name: 'aerial Falcon Punch', steps: [...hop, [1, { buttons: 'B' }]], expect: ['SpecialAirN'] },
+    { name: 'Raptor Boost', steps: [[1, { sx: 127, buttons: 'B' }]], expect: ['SpecialSStart'] },
+    { name: 'aerial Raptor Boost', steps: [...hop, [1, { sx: 127, buttons: 'B' }]], expect: ['SpecialAirSStart', 'LandingFallSpecial'] },
+    { name: 'Falcon Dive', steps: [[1, { sy: 127, buttons: 'B' }]], expect: ['SpecialHi', 'FallSpecial'] },
+    { name: 'Falcon Kick', steps: [[1, { sy: -127, buttons: 'B' }]], expect: ['SpecialLw', 'SpecialLwEnd'] },
+    { name: 'aerial Falcon Kick', steps: [...hop, [1, { sy: -127, buttons: 'B' }]], expect: ['SpecialAirLw', 'SpecialAirLwEnd'] },
+  ];
+  const failures: string[] = [];
+  for (const c of cases) {
+    const e = newEngine(data);
+    for (let i = 0; i < 10; i++) e.step(pad());
+    const seen: string[] = [];
+    const record = () => { const n = e.fighter.motionName; if (seen[seen.length - 1] !== n) seen.push(n); };
+    try {
+      for (const [n, p] of c.steps) for (let i = 0; i < n; i++) { e.step(pad(p)); record(); }
+      for (let i = 0; i < 400 && !(e.fighter.motionName === 'Wait' && e.fighter.ga === 0); i++) { e.step(pad()); record(); }
+    } catch (err) { failures.push(`${c.name}: threw ${(err as Error).stack}`); continue; }
+    const missing = c.expect.filter((s) => !seen.includes(s));
+    console.log(`      ${c.name.padEnd(22)} ${seen.join(' > ')}`);
+    if (missing.length || e.fighter.motionName !== 'Wait') failures.push(`${c.name}: missing ${missing.join(', ') || '-'}, ended in ${e.fighter.motionName}`);
+  }
+  assert(!failures.length, failures.join('\n      '));
+}, true);
+
 test('engine: Falco is his own character (jumpsquat, jump height, laser sound)', async (disc) => {
   const { foxData, falcoData, newEngine, pad } = await import('./sim');
   const fox = await foxData(disc), falco = await falcoData(disc);
@@ -299,14 +333,20 @@ test("sandbag: Falco's laser makes it flinch, Fox's only adds percent", async (d
 
 test('validation: web engine matches the real game frame by frame (tests/expected)', async (disc) => {
   const { expectedTraces, readTrace, compareTrace, compareWorldTrace, hasSandbag } = await import('./validate');
-  const { foxData, sandbagData } = await import('./sim');
-  const traces = expectedTraces();
+  const { charData, sandbagData, KIND_IDS } = await import('./sim');
+  // VALIDATE=ca_ runs only the traces whose names start with that (comma-separated prefixes).
+  const only = process.env.VALIDATE?.split(',');
+  const traces = expectedTraces().filter((t) => !only || only.some((p) => t.name.startsWith(p)));
   if (!traces.length) { console.log('      no reference traces: run tests/validation/run_reference.py'); return; }
-  const data = await foxData(disc);
+  const players = new Map<string, Awaited<ReturnType<typeof charData>>>();
   const sb = await sandbagData(disc);
   const failures: string[] = [];
   for (const t of traces) {
     const rows = readTrace(t.path);
+    // Player 1 is whoever the trace recorded (its kind column): Fox, or another with "# p1 <id>".
+    const id = KIND_IDS[rows[0]?.kind] ?? 'fox';
+    if (!players.has(id)) players.set(id, await charData(disc, id));
+    const data = players.get(id)!;
     const r = hasSandbag(rows) ? compareWorldTrace(t.name, rows, data, sb) : compareTrace(t.name, rows, data);
     if (r.mismatches.length) {
       const m = r.mismatches[0];

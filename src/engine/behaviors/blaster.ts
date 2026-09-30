@@ -5,7 +5,7 @@ import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { BTN } from '../pad';
 import { GA } from '../types';
-import { STATES, specials, collAirLand, collFallOff, fallEnter, fallSpecialEnter, landFromAir, waitEnter, type StateDef } from '../states';
+import { addStates, collAirLand, collFallOff, fallEnter, fallSpecialEnter, landFromAir, waitEnter, type Kit, type StateDef } from '../states';
 import { airPhysics, groundFriction } from '../physics';
 
 export const FX_N = { Start: 341, Loop: 342, End: 343, AirStart: 344, AirLoop: 345, AirEnd: 346 } as const;
@@ -104,11 +104,8 @@ const defs: StateDef[] = [
   },
 ];
 
-let registered = false;
-export function registerBlaster(): void {
-  if (registered) return;
-  registered = true;
-  for (const d of defs) STATES.set(d.id, d);
-  specials.groundN = groundEnter;
-  specials.airN = airEnter;
+export function registerBlaster(kit: Kit): void {
+  addStates(kit, defs);
+  kit.specials.groundN = groundEnter;
+  kit.specials.airN = airEnter;
 }

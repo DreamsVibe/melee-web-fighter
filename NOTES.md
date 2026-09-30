@@ -600,34 +600,93 @@ Fox's code:
 * Node's `openAsBlob` reports a disc image over 4 GB with its size mod 2^32, so the tests can't read
   such an `.iso` (a 1.4 GB `.ciso` of the same disc works). Browsers' `File` is not affected.
 
-## Adding a character: what to reuse
+## Captain Falcon
 
-The engine and importer now take a character spec (`CharacterSpec` in `importer/pipeline.ts`): file
-code, Ft_Kind, its own submotion names, special-attribute fields, behavior modules, sound bank,
-model constraints. Adding a fighter is:
+Added with the character tooling below. All of his moves are checked frame by frame against the
+real game (the `ca_*` scripts, 40 traces), except Falcon Dive's catch and the Falcon Kick's wall
+rebound.
 
-1. **Import.** Add a spec, then check the new folder with the importer in Node (see
-   `tools/datx.ts`: `roots`, `words` with `->` pointer paths).
-2. **States.** Common states are shared. Motion ids from 341 up are the character's own, so the
-   engine builds a separate state table for anything that reuses those ids (as Sandbag does).
-3. **Specials.** Port the character's `ft/kinds/ftXxx/*.c` behavior like Fox's `behaviors/`.
-4. **Validate.** Record traces with the new character as player 1 (or player 2 with
-   `--p2-ckind`), then find the first diverging frame with `tools/tracediff.ts`.
+* **Files:** `PlCa.dat` (`ftDataCaptain`), `PlCaNr.dat`, `PlCaAJ.dat`, `audio/us/captain.ssm` (bank 6).
+  Ft_Kind 2; CharacterKind (select screen) 0. His own motion ids start with six item swings (341-346)
+  before the specials (347-363), so Fox's ids mean something else for him. Ganondorf runs the same
+  code (`ftCa_Init_OnLoadForGanon`).
+* **Specials** (`src/engine/behaviors/captain.ts`, from `ft/kinds/ftCaptain/`):
+  * Falcon Punch: in the air the script's var 0 launches it at the stick's angle (`specialn_*`);
+    var 1 picks the physics (fall with friction / slow by `specialn_vel_mul` / free drift).
+  * Raptor Boost: the startup carries three **inert** hitboxes (element 11). Touching a fighter only
+    tells Falcon whom (`unk_gobj`); the resolve step then runs `hurtbox_detect_cb`, which switches to
+    SpecialS / SpecialAirS, the lunge that has the real hitbox. The aerial one has its own gravity.
+  * Falcon Dive: the rise is root motion plus a drift kept in motion vars (`CalcSelfAccel_DeaccelQuick`
+    / `DriftSimple_NoFriction` with `ftCommonData +0x258`). It can land or catch ledges only once the
+    script's var 0 has fired (`x2_b1`). Its grab box (element 8) catches no one yet.
+  * Falcon Kick: each hit it deals (`deal_dmg_cb`, up to `speciallw_unk2` + 1) multiplies its speed by
+    `speciallw_on_hit_spd_modifier`. Command 14 turns hitbox 2's "hits fighters" bit (`x42_b5`) off.
+* **Unused attribute:** `x68` reads as 3e-45, so it's really an int; nothing uses it.
+* **Wall jumping** (`can_walljump`) isn't modelled. Page geometry has no walls.
 
-`tools/e2e.mjs` checks the whole thing in real Chrome: it loads a copy of the extension over a CDP
-pipe (`--remote-debugging-pipe --enable-unsafe-extension-debugging`, then `Extensions.loadUnpacked`;
-branded Chrome ignores `--load-extension`), imports the disc with `DOM.setFileInputFiles`, and drives
-a local test page with key events. The copy adds `http://127.0.0.1/*` to `host_permissions`, since
-the real extension relies on activeTab (a click on the toolbar button).
+### Engine changes that came with him (they apply to every character)
 
-Tools worth building next:
+* **Per-character state tables** (`Kit` in `statedefs.ts`): a character's own states and special entry
+  points live in `CharacterData.kit`, built by its behavior modules; common states stay in `STATES`.
+  Move ids for own states come from `character.json` `motions` (generated), not code.
+* **Fall blend** (`ftCo_Fall_Anim_Inner`, `ftCo_800CC988`): Fall and FallAerial blend in FallF/B (or
+  FallAerialF/B) by how far the drift is past `fall_blend_threshold`, easing by `fall_blend_rate`. The
+  second animation starts at the current frame and is interpreted twice on its first frame, so it runs
+  one frame ahead. The pose blend (`ftAnim_8006FE9C` → `lb_8000C490`) mixes translation and scale
+  linearly and slerps rotation as quaternions (`EulerToQuat`, `HSD_QuatLib_8037EF28`, matrices from
+  the quaternion like `PSMTXQuat`); TransN and part 0x35 copy the second pose. It moves the ECB, so it
+  decides landing frames: Falcon's double jump landed a frame late without it.
+* **Landing speed** (`ftCommon_8007D6A4`): with a root-motion animation the ground speed is TransN's
+  step, and the clamp to `ground_max_horizontal_velocity` runs on the old ground speed, so in effect
+  it never clamps.
+* **Inert hitboxes and reactions:** `hurtbox_detect_cb` and `deal_dmg_cb` as `onDetect` / `onDealDamage`,
+  cleared by every state change, called from the resolve step in the game's order (took a hit, else
+  dealt damage, else detected).
+* **Wait's frame** isn't compared while both stand: the game picks Wait1 or Wait2 at random.
 
-* A struct printer driven by the decomp headers. `types.h` comments carry every field's offset, so a
-  script could turn `ftCommonData`, `ftCo_DatAttrs` or a special-attributes struct into the
-  `Field[]` lists in `shared/attributes.ts`. Reading them by hand caused the `x424` mistake (a
-  float read as an int).
-* A script generator for validation runs. Moving Fox into range took several tries per script; a
-  small search that runs the reference with a few timings and keeps the one where the hit connects
-  would make coverage cheap.
-* A table of motion id → move id / submotion / flags taken from `ftmotionstates.c` and each
-  character's `MotionStateTable`, so `moveIdOf` and state names come from data.
+## Adding a character: the workflow
+
+The engine and importer take a character spec (`CharacterSpec` in `importer/pipeline.ts`). Everything
+generic (model, animations, move scripts, attributes, hurtboxes, sounds, all common states) works as
+soon as the spec exists; the work is the specials. Captain Falcon was done this way:
+
+1. **Generate** `node tools/run.mjs fighter-gen <ftFolder> <id>` writes `src/shared/fighters/<id>.ts`
+   (submotion names, special attributes with offsets checked against the header, motion table with
+   move ids) and prints a report. The report lists each own state's callbacks and every game function
+   the character's code calls, marked ✓ when its name appears in `src/engine`. The engine cites the
+   decomp function it ports in a comment, so keep doing that: it's what makes the report accurate.
+   Clones (Falco) have no enums of their own: reuse the original's lists with their own motion table.
+2. **Spec**: file code, Ft_Kind (`FighterKind` in `ft/forward.h`), sound bank (`ssm_files[]` in
+   `lb/lbaudio_ax.c` for the index), behaviors (regex on move names → module name), add it to
+   `CHARACTERS`/`PLAYABLE` and `shared/settings.ts`, bump `FORMAT_VERSION`.
+3. **Check the import** with `node tools/run.mjs charcheck <id>`: special attribute values (a float
+   like 3e-45 is an int), and the script commands its moves use that the engine doesn't run yet (the
+   files land in `.tools-out/folder/` to grep).
+4. **Record traces before porting anything.** Add the character's select-screen cursor move to
+   `P1_CURSOR` in `run_reference.py` (probe with `# p1css ...` lines and look at the trace's `kind`
+   column), then copy the Fox scripts with `# p1 <id>` in front (as the `ca_*` ones are) and record
+   them all (`-j 8`, about 40 s). Normals usually match at once; what doesn't is an engine gap.
+5. **Port the specials** reading only the functions you need: `node tools/run.mjs decomp-fn --calls
+   <function>` prints a function and everything it calls. Common equivalents:
+   `ft_80082708` = `groundCollision(EdgeMode.Fall)`, `ft_800827A0` = `EdgeMode.Stop`, `ft_80081D0C` =
+   `airCollision` (true = landed), `ft_80084104` = `collStop`, `ft_8008A2BC` = `waitEnter`,
+   `ftCo_80096900` = `fallSpecialEnter`, `ftCommon_8007D5D4/D60C/D7FC` = `toAir/toAirNoJumps/toGround`,
+   `ft_80084FA8` = `groundAttackPhysics`, `ft_80085134` = `airRootMotion`, `ft_80085088` =
+   `groundRootMotionSet(ground_friction)`, `ft_80084EEC` = `airFallDeaccel`, `ft_80084DB0` =
+   `airPhysics`. The `ftCommon_GroundToAir/AirToGroundStateChange` inlines keep the frame
+   (`MF.UpdateCmd | MF.KeepGfx`). Effects (`ef*`) and item callbacks can be skipped.
+6. **Cover what the Fox scripts miss** with `tests/validation/search.py`: a template with `{T}`, the
+   values to try and the state that must appear (`--want`); it records them in parallel and keeps the
+   first that works (`--keep`). Check the x range it prints: stay away from Final Destination's edges.
+7. **Validate** with `VALIDATE=<prefix>_ node dist-tests/run.js validation` after
+   `node build.mjs --tests`; the first mismatch shows eight frames of both sides with the engine's
+   ECB bottom. Then add a Node test (every move plays through), and run `tools/e2e.mjs` with
+   `CHARACTER=<id>` (in the background, checking its log: it takes about 30 s).
+
+Pitfalls met so far:
+
+* Swapping player 1's pick after the select screen (`--p1-ckind`) runs the game out of memory for
+  characters bigger than Fox (`lbmemory.c` "memp_kouho"): pick on the select screen instead.
+* In the decomp's `ftColl` attack loop, `victim_fp` is the one whose hitbox it is.
+* `ft_80081D0C` returns a `GroundOrAir` where GA_Air (1) means it touched the floor.
+* `tools/e2e.mjs` needs an absolute output folder for Chrome to load the extension (now resolved).

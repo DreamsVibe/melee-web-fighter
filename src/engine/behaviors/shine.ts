@@ -5,7 +5,7 @@ import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { BTN } from '../pad';
 import { GA } from '../types';
-import { STATES, specials, kneeBendEnter, jumpAerialEnter, type StateDef } from '../states';
+import { addStates, kneeBendEnter, jumpAerialEnter, type Kit, type StateDef } from '../states';
 import { deaccelQuickAir, fall, groundFriction, clampAirDrift } from '../physics';
 import { airCollision, groundCollision, EdgeMode, isOnPlatform } from '../collision';
 
@@ -207,12 +207,9 @@ const defs: StateDef[] = [
   },
 ];
 
-let registered = false;
 /** Registers the shine states and the down-special entry points. */
-export function registerShine(): void {
-  if (registered) return;
-  registered = true;
-  for (const d of defs) STATES.set(d.id, d);
-  specials.groundLw = groundEnter;
-  specials.airLw = airEnter;
+export function registerShine(kit: Kit): void {
+  addStates(kit, defs);
+  kit.specials.groundLw = groundEnter;
+  kit.specials.airLw = airEnter;
 }

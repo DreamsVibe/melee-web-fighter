@@ -12,10 +12,11 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync, readdirSync, cpSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const OUT = process.argv[2] ?? join(tmpdir(), 'mwf-e2e');
+// Absolute: Chrome can't resolve a relative extension path (Extensions.loadUnpacked fails).
+const OUT = resolve(process.argv[2] ?? join(tmpdir(), 'mwf-e2e'));
 const CHARACTER = process.env.CHARACTER ?? 'fox';
 const OTHER = CHARACTER === 'fox' ? 'falco' : 'fox';
 const REPO = process.cwd();
@@ -51,9 +52,11 @@ read.on('data', (d) => {
     else for (const l of listeners) l(msg);
   }
 });
+// A browser that stops answering ends the run instead of hanging on to Chrome and the port.
 const send = (method, params = {}, sessionId) => new Promise((res, rej) => {
   const id = nextId++;
-  waiting.set(id, { res, rej });
+  const timer = setTimeout(() => { if (waiting.delete(id)) rej(new Error(`${method}: no answer in 60 s`)); }, 60000);
+  waiting.set(id, { res: (v) => { clearTimeout(timer); res(v); }, rej: (e) => { clearTimeout(timer); rej(e); } });
   write.write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + '\0');
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -3,7 +3,7 @@
 // stage object and does not come.
 import type { Engine } from '../engine';
 import { MF } from '../engine';
-import { STATES, specials, collTeeter, waitEnter, type StateDef } from '../states';
+import { addStates, collTeeter, waitEnter, type Kit, type StateDef } from '../states';
 import { groundFriction } from '../physics';
 
 /** ftFx_MS_AppealSStartR ... EndL: [facing right, facing left] × [start, loop, end]. */
@@ -33,10 +33,7 @@ const defs: StateDef[] = MSID.flatMap((ids, dir) => ids.map((id, part): StateDef
   coll: collTeeter,
 })));
 
-let registered = false;
-export function registerAppeal(): void {
-  if (registered) return;
-  registered = true;
-  for (const d of defs) STATES.set(d.id, d);
-  specials.appeal = enter;
+export function registerAppeal(kit: Kit): void {
+  addStates(kit, defs);
+  kit.specials.appeal = enter;
 }

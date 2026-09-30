@@ -1,0 +1,12 @@
+# p1 captain
+# Captain Falcon with the inputs of dashdance.txt.
+# Dash dance: alternate full left/right smashes every 4 frames, then let go.
+200 sx=127
+204 sx=-127
+208 sx=127
+212 sx=-127
+216 sx=127
+220 sx=-127
+224 sx=127
+228
+300

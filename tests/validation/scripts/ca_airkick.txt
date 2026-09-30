@@ -1,0 +1,7 @@
+# p1 captain
+# Short hop, then Falcon Kick diving down into its landing (SpecialAirLw, SpecialAirLwEnd).
+200 X
+201
+206 sy=-127 B
+207
+500

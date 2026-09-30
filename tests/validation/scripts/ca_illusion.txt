@@ -1,0 +1,10 @@
+# p1 captain
+# Captain Falcon with the inputs of illusion.txt.
+# Illusion forward on the ground, then backward from a jump.
+200 sx=127 B
+201
+280 X
+281
+288 sx=-127 B
+289
+400

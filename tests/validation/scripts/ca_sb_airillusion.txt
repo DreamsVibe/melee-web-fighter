@@ -1,0 +1,11 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_airillusion.txt.
+# p2 sandbag
+# Run towards Sandbag, short hop, then Illusion through it in the air (the aerial afterimage's hit).
+230 sx=127
+243
+300 X
+301
+305 sx=127 B
+306
+700

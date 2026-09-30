@@ -14,7 +14,7 @@ const STORE = 'files';
 const PACK = 'pack:imported';
 
 /** Bump when the imported folder layout or any binary format changes: forces a re-import. */
-export const FORMAT_VERSION = 4;
+export const FORMAT_VERSION = 5;
 export const META_PATH = 'meta.json';
 
 const isPacked = (path: string) => path.startsWith('characters/') || path.startsWith('common/');

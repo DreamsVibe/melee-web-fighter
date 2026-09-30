@@ -13,6 +13,8 @@ import { SegKind, type StageData } from '../src/engine/stagetypes';
 export interface Row {
   retrace: number; motion: number; frame: number; x: number; y: number; vx: number; vy: number; gr: number;
   facing: number; air: number; jumps: number; buttons: number; sx: number; sy: number; l: number; r: number;
+  /** Player 1's internal kind (Ft_Kind: 1 Fox, 2 Captain Falcon, 22 Falco). */
+  kind: number;
   /** Newer traces: hitlag, and player 2 (Sandbag in the scripts that ask for it). */
   hitlag?: number; p2?: { kind: number; motion: number; frame: number; x: number; y: number; vx: number; vy: number; kbx: number; kby: number; gr: number; facing: number; air: number; percent: number; hitlag: number };
 }
@@ -26,7 +28,7 @@ export function readTrace(path: string): Row[] {
   return lines.map((l) => {
     const cells = l.split(',');
     const v = cells.map(Number);
-    const row: Row = { retrace: v[0], motion: v[1], frame: v[2], x: v[3], y: v[4], vx: v[5], vy: v[6], gr: v[7], facing: v[8], air: v[9], jumps: v[10], buttons: v[11], sx: v[12], sy: v[13], l: v[14], r: v[15] };
+    const row: Row = { retrace: v[0], motion: v[1], frame: v[2], x: v[3], y: v[4], vx: v[5], vy: v[6], gr: v[7], facing: v[8], air: v[9], jumps: v[10], buttons: v[11], sx: v[12], sy: v[13], l: v[14], r: v[15], kind: v[16] };
     if (cells.length > 18) row.hitlag = v[18];
     if (cells.length > 19 && cells[19] !== '') {
       row.p2 = { kind: v[19], motion: v[20], frame: v[21], x: v[22], y: v[23], vx: v[24], vy: v[25], kbx: v[26], kby: v[27], gr: v[28], facing: v[29], air: v[30], percent: v[31], hitlag: v[32] };
@@ -57,6 +59,13 @@ export interface Result { name: string; frames: number; mismatches: Mismatch[] }
 
 const f4 = (n: number) => n.toFixed(4);
 
+/**
+ * Standing (Wait) restarts its idle animation with one the game picks at random (ftCo_8008A7A8: Wait1 or
+ * Wait2), which the engine can't reproduce, so it always replays Wait1. Nothing in Wait depends on the
+ * idle animation's frame, so it isn't compared while both stand.
+ */
+const waitTol = (want: number, have: number) => (want === 14 && have === 14 ? Infinity : TOL.frame);
+
 /** Runs one trace from the first grounded Wait row at or after `startRetrace`. */
 export function compareTrace(name: string, rows: Row[], data: CharacterData, startRetrace = 1590, maxMismatches = 1): Result {
   const s = rows.findIndex((r) => r.retrace >= startRetrace && r.motion === 14 && r.air === 0);
@@ -77,11 +86,11 @@ export function compareTrace(name: string, rows: Row[], data: CharacterData, sta
     e.step(pad);
     const exp = rows[i + 1], fp = e.fighter;
     const got: Record<string, number> = { motion: fp.motionId, frame: fp.animFrame, x: fp.pos.x, y: fp.pos.y, vx: fp.selfVel.x, vy: fp.selfVel.y, gr: fp.grVel, facing: fp.facing, air: fp.ga, jumps: fp.jumpsUsed };
-    log.push(`${exp.retrace} game ${exp.motion}@${f4(exp.frame)} (${f4(exp.x)},${f4(exp.y)}) v(${f4(exp.vx)},${f4(exp.vy)}) gr ${f4(exp.gr)} | web ${fp.motionName}(${fp.motionId})@${f4(fp.animFrame)} (${f4(fp.pos.x)},${f4(fp.pos.y)}) v(${f4(fp.selfVel.x)},${f4(fp.selfVel.y)}) gr ${f4(fp.grVel)}`);
+    log.push(`${exp.retrace} game ${exp.motion}@${f4(exp.frame)} (${f4(exp.x)},${f4(exp.y)}) v(${f4(exp.vx)},${f4(exp.vy)}) gr ${f4(exp.gr)} | web ${fp.motionName}(${fp.motionId})@${f4(fp.animFrame)} (${f4(fp.pos.x)},${f4(fp.pos.y)}) v(${f4(fp.selfVel.x)},${f4(fp.selfVel.y)}) gr ${f4(fp.grVel)} ecb ${f4(fp.ecb.bottom)}`);
     if (log.length > 8) log.shift();
     res.frames++;
     const checks: Array<[string, number, number, number]> = [
-      ['motion', exp.motion, got.motion, 0], ['frame', exp.frame, got.frame, TOL.frame],
+      ['motion', exp.motion, got.motion, 0], ['frame', exp.frame, got.frame, waitTol(exp.motion, got.motion)],
       ['x', exp.x, got.x, TOL.pos], ['y', exp.y, got.y, TOL.pos],
       ['vx', exp.vx, got.vx, TOL.vel], ['vy', exp.vy, got.vy, TOL.vel], ['gr', exp.gr, got.gr, TOL.vel],
       ['facing', exp.facing, got.facing, 0], ['air', exp.air, got.air, 0],
@@ -145,7 +154,7 @@ export function compareWorldTrace(name: string, rows: Row[], fox: CharacterData,
     while (log.length > 12) log.shift();
     res.frames++;
     const checks: Array<[string, number, number, number]> = [
-      ['motion', exp.motion, fp.motionId, 0], ['frame', exp.frame, fp.animFrame, TOL.frame],
+      ['motion', exp.motion, fp.motionId, 0], ['frame', exp.frame, fp.animFrame, waitTol(exp.motion, fp.motionId)],
       ['x', exp.x, fp.pos.x, TOL.pos], ['y', exp.y, fp.pos.y, TOL.pos],
       ['vx', exp.vx, fp.selfVel.x, TOL.vel], ['vy', exp.vy, fp.selfVel.y, TOL.vel], ['gr', exp.gr, fp.grVel, TOL.vel],
       ['facing', exp.facing, fp.facing, 0], ['air', exp.air, fp.ga, 0], ['hitlag', exp.hitlag ?? 0, fp.hitlag, 0],

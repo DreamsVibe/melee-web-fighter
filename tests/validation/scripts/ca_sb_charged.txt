@@ -1,0 +1,10 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_charged.txt.
+# p2 sandbag
+# A fully charged forward smash (hitlag, stale-free damage scaled by the charge).
+230 sx=127
+268
+300 sx=127 A
+301 A
+400
+700

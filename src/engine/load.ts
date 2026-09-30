@@ -6,6 +6,7 @@ import { readSkeleton } from '../shared/modelfile';
 import { parseMove } from '../shared/move';
 import type { CharacterData, CompiledMove, Named } from './types';
 import { BEHAVIORS } from './behaviors';
+import { newKit } from './statedefs';
 
 export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'): CharacterData {
   const need = (p: string) => {
@@ -53,7 +54,8 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
       landingLag: m.landingLag, behavior: m.behavior, cmds: m.body, labels,
     });
   }
-  for (const m of moves.values()) if (m.behavior) BEHAVIORS[m.behavior]?.();
+  const kit = newKit();
+  for (const b of new Set([...moves.values()].map((m) => m.behavior))) if (b) BEHAVIORS[b]?.(kit);
 
   return {
     name: info.name,
@@ -80,5 +82,7 @@ export function loadCharacter(files: FileMap, dir: string, commonDir = 'common/'
     laser: info.articles?.laser?.states ? info.articles.laser : null,
     // Imports from before the afterimage was read have none: the side special then doesn't hit.
     illusion: info.articles?.illusion?.states ? info.articles.illusion : null,
+    kit,
+    moveIds: new Map((info.motions ?? []).map((m: [number, string, string, number]) => [m[0], m[3]])),
   };
 }

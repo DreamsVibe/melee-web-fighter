@@ -20,6 +20,8 @@ export type Cmd =
   | { op: 'goto'; label: string } | { op: 'wait_anim_end' }
   | { op: 'hitbox'; f: Record<string, number> }
   | { op: 'hitbox_damage'; id: number; value: number } | { op: 'hitbox_size'; id: number; value: number }
+  // Command 14 (ftAction_80071708): which: 0 = can hit fighters (x42_b5), 1 = x42_b7.
+  | { op: 'hitbox_flag'; id: number; which: number; value: number }
   | { op: 'remove_hitbox'; id: number } | { op: 'clear_hitboxes' }
   | { op: 'sound'; id: number; behavior: number; volume: number; pan: number; extra: number }
   | { op: 'footstep' | 'landing_sound'; id: number; w0: number; w2: number }
@@ -87,6 +89,7 @@ export function decodeCommand(words: number[], labelOf: (target: number) => stri
     }
     case 12: return { op: 'hitbox_damage', id: F(w0, 6, 3), value: F(w0, 9, 23) };
     case 13: return { op: 'hitbox_size', id: F(w0, 6, 3), value: F(w0, 9, 23) / 256 };
+    case 14: return { op: 'hitbox_flag', id: F(w0, 6, 24), which: F(w0, 30, 1), value: F(w0, 31, 1) };
     case 15: return { op: 'remove_hitbox', id: F(w0, 6, 26) };
     case 16: if (w0 === 0x40000000) return { op: 'clear_hitboxes' }; break;
     case 17: return { op: 'sound', behavior: F(w0, 6, 8), extra: F(w0, 14, 18), id: words[1], volume: F(words[2], 16, 8), pan: F(words[2], 24, 8) };
@@ -123,6 +126,7 @@ export function encodeCommand(c: Cmd, target: (label: string) => number): number
     }
     case 'hitbox_damage': return [word(put(12, 0, 6), put(c.id, 6, 3), put(c.value, 9, 23))];
     case 'hitbox_size': return [word(put(13, 0, 6), put(c.id, 6, 3), put(Math.round(c.value * 256), 9, 23))];
+    case 'hitbox_flag': return [word(put(14, 0, 6), put(c.id, 6, 24), put(c.which, 30, 1), put(c.value, 31, 1))];
     case 'remove_hitbox': return [word(put(15, 0, 6), put(c.id, 6, 26))];
     case 'clear_hitboxes': return [0x40000000];
     case 'sound': return [word(put(17, 0, 6), put(c.behavior, 6, 8), put(c.extra, 14, 18)), c.id >>> 0, word(put(c.volume, 16, 8), put(c.pan, 24, 8))];
@@ -169,6 +173,7 @@ export function formatCommand(c: Cmd, soundName: (id: number) => string): string
     }
     case 'hitbox_damage': return `hitbox_damage ${c.id} ${c.value}`;
     case 'hitbox_size': return `hitbox_size ${c.id} ${num(c.value)}`;
+    case 'hitbox_flag': return `hitbox_flag ${c.id} ${c.which ? 'b7' : 'hits_fighters'}=${c.value}`;
     case 'remove_hitbox': return `remove_hitbox ${c.id}`;
     case 'sound': {
       let s = `sound ${soundName(c.id)}`;
@@ -249,6 +254,7 @@ function parseCommand(tokens: string[], soundId: (name: string) => number, line:
     }
     case 'hitbox_damage': return { op, id: n(0), value: n(1) };
     case 'hitbox_size': return { op, id: n(0), value: n(1) };
+    case 'hitbox_flag': { const [k, v] = (args[1] ?? '').split('='); return { op, id: n(0), which: k === 'b7' ? 1 : 0, value: Number(v) }; }
     case 'remove_hitbox': return { op, id: n(0) };
     case 'sound': {
       const o = kv();

@@ -15,12 +15,18 @@ export function restPose(joints: SkeletonJoint[]): LocalPose {
  * Computes 3x4 row-major world matrices into `out` (12 floats per joint).
  * `scratch` holds accumulated scales (3 per joint). Allocation-free.
  */
-export function worldMatrices(joints: SkeletonJoint[], local: LocalPose, out: Float32Array, scratch: Float32Array, classical: Uint8Array | null = null): void {
-  for (let i = 0; i < joints.length; i++) jointMatrix(joints, local, out, scratch, i, classical);
+export function worldMatrices(joints: SkeletonJoint[], local: LocalPose, out: Float32Array, scratch: Float32Array, classical: Uint8Array | null = null, quats: JointQuats | null = null): void {
+  for (let i = 0; i < joints.length; i++) jointMatrix(joints, local, out, scratch, i, classical, quats);
 }
 
+/**
+ * Joints whose rotation is a quaternion (HSD JObj flag 0x20000), as a blend of two animations leaves
+ * them (lb_8000C490): 4 floats (x, y, z, w) per joint, used where `on` is 1.
+ */
+export interface JointQuats { q: Float32Array; on: Uint8Array }
+
 /** One joint's world matrix from its local channels and its parent's (already computed) matrix. */
-export function jointMatrix(joints: SkeletonJoint[], local: LocalPose, out: Float32Array, scratch: Float32Array, i: number, classical: Uint8Array | null = null): void {
+export function jointMatrix(joints: SkeletonJoint[], local: LocalPose, out: Float32Array, scratch: Float32Array, i: number, classical: Uint8Array | null = null, quats: JointQuats | null = null): void {
   const j = joints[i];
   const o = i * 9;
   const rx = local[o], ry = local[o + 1], rz = local[o + 2];
@@ -33,10 +39,17 @@ export function jointMatrix(joints: SkeletonJoint[], local: LocalPose, out: Floa
   scratch[i * 3] = isClassical ? psx : psx * sx;
   scratch[i * 3 + 1] = isClassical ? psy : psy * sy;
   scratch[i * 3 + 2] = isClassical ? psz : psz * sz;
-  // Rotation R = Rz * Ry * Rx, then column c scaled by s[c]*ps[c]/ps[r].
-  const r00 = cZ * cY, r01 = cZ * sX * sY - cX * sZ, r02 = cZ * cX * sY + sX * sZ;
-  const r10 = sZ * cY, r11 = sZ * sX * sY + cX * cZ, r12 = sZ * cX * sY - sX * cZ;
-  const r20 = -sY, r21 = cY * sX, r22 = cY * cX;
+  // Rotation R = Rz * Ry * Rx (or the quaternion's, PSMTXQuat), then column c scaled by s[c]*ps[c]/ps[r].
+  let r00 = cZ * cY, r01 = cZ * sX * sY - cX * sZ, r02 = cZ * cX * sY + sX * sZ;
+  let r10 = sZ * cY, r11 = sZ * sX * sY + cX * cZ, r12 = sZ * cX * sY - sX * cZ;
+  let r20 = -sY, r21 = cY * sX, r22 = cY * cX;
+  if (quats?.on[i]) {
+    const q = quats.q, x = q[i * 4], y = q[i * 4 + 1], z = q[i * 4 + 2], w = q[i * 4 + 3];
+    const s = 2 / (x * x + y * y + z * z + w * w);
+    r00 = 1 - s * (y * y + z * z); r01 = s * (x * y - w * z); r02 = s * (x * z + w * y);
+    r10 = s * (x * y + w * z); r11 = 1 - s * (x * x + z * z); r12 = s * (y * z - w * x);
+    r20 = s * (x * z - w * y); r21 = s * (y * z + w * x); r22 = 1 - s * (x * x + y * y);
+  }
   const c0 = sx * psx, c1 = sy * psy, c2 = sz * psz;
   const l00 = r00 * c0 / psx, l01 = r01 * c1 / psx, l02 = r02 * c2 / psx;
   const l10 = r10 * c0 / psy, l11 = r11 * c1 / psy, l12 = r12 * c2 / psy;
@@ -140,5 +153,38 @@ export function mul34(a: Float32Array | number[], ao: number, b: Float32Array | 
     out[oo + r * 4 + 1] = a0 * b[bo + 1] + a1 * b[bo + 5] + a2 * b[bo + 9];
     out[oo + r * 4 + 2] = a0 * b[bo + 2] + a1 * b[bo + 6] + a2 * b[bo + 10];
     out[oo + r * 4 + 3] = a0 * b[bo + 3] + a1 * b[bo + 7] + a2 * b[bo + 11] + a3;
+  }
+}
+
+/** EulerToQuat (sysdolphin quatlib.c): an XYZ Euler rotation as a quaternion, into q at o. */
+export function eulerToQuat(rx: number, ry: number, rz: number, q: Float32Array, o: number): void {
+  const f = Math.fround;
+  const cx = f(Math.cos(f(0.5 * rx))), cy = f(Math.cos(f(0.5 * ry))), cz = f(Math.cos(f(0.5 * rz)));
+  const sx = f(Math.sin(f(0.5 * rx))), sy = f(Math.sin(f(0.5 * ry))), sz = f(Math.sin(f(0.5 * rz)));
+  const ss = f(sy * sz), cc = f(cy * cz);
+  q[o + 3] = f(cx * cc + sx * ss);
+  q[o] = f(sx * cc - cx * ss);
+  q[o + 1] = f(cz * f(cx * sy) + sz * f(sx * cy));
+  q[o + 2] = f(sz * f(cx * cy) - cz * f(sx * sy));
+}
+
+/** HSD_QuatLib_8037EF28: spherical interpolation from p (t = 0) to q (t = 1), into out at oo. */
+export function slerp(p: Float32Array, po: number, q: Float32Array, qo: number, out: Float32Array, oo: number, t: number): void {
+  const f = Math.fround;
+  const cosom = f(p[po] * q[qo] + p[po + 1] * q[qo + 1] + p[po + 2] * q[qo + 2] + p[po + 3] * q[qo + 3]);
+  let sp: number, sq: number;
+  if (f(1 + cosom) > 1e-10) {
+    if (f(1 - cosom) > 1e-10) {
+      const theta = f(Math.acos(cosom)), sinom = f(Math.sin(theta));
+      sp = f(f(Math.sin(f(f(1 - t) * theta))) / sinom);
+      sq = f(f(Math.sin(f(t * theta))) / sinom);
+    } else { sq = t; sp = f(1 - t); }
+    for (let k = 0; k < 4; k++) out[oo + k] = f(sp * p[po + k] + sq * q[qo + k]);
+  } else {
+    // Nearly opposite: the game fills in a perpendicular quaternion, then overwrites it with this mix.
+    const t2 = t < 0.5 ? f(2 * t) : f(2 * f(t - 0.5));
+    sp = f(Math.sin(f(Math.PI / 2 * f(1 - t2))));
+    sq = f(Math.sin(f(Math.PI / 2 * t2)));
+    for (let k = 0; k < 4; k++) out[oo + k] = f(sp * p[po + k] + sq * q[qo + k]);
   }
 }

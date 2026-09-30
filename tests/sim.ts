@@ -24,8 +24,16 @@ export async function foxData(disc: Disc, overrides: FileMap = new Map()): Promi
 }
 
 export async function falcoData(disc: Disc): Promise<CharacterData> {
-  return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/falco/');
+  return charData(disc, 'falco');
 }
+
+/** Any imported character by id (characters/<id>/). */
+export async function charData(disc: Disc, id: string): Promise<CharacterData> {
+  return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), `characters/${id}/`);
+}
+
+/** Ft_Kind → character id, for reference traces (their `kind` column). */
+export const KIND_IDS: Record<number, string> = { 1: 'fox', 2: 'captain', 22: 'falco' };
 
 export async function sandbagData(disc: Disc): Promise<CharacterData> {
   return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/sandbag/');

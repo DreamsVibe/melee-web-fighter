@@ -1,0 +1,15 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_aerials.txt.
+# p2 sandbag
+# Short hop neutral air, then a full hop down air onto Sandbag.
+230 sx=127
+271
+290 X
+291
+293 A
+294
+400 X
+412
+414 A
+415
+700

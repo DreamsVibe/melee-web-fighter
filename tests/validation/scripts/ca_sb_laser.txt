@@ -1,0 +1,13 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_laser.txt.
+# p2 sandbag
+# Lasers from a distance: each adds percent, no flinch.
+230 sx=127
+250
+300 B
+301
+330 B
+331
+360 B
+361
+420

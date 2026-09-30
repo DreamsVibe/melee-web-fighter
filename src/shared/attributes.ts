@@ -59,7 +59,7 @@ export const COMMON_FIELDS: Field[] = [
   ['relaxed_tap_jump_threshold', 0x80], ['fast_fall_threshold', 0x88], ['fast_fall_window', 0x8c, 'i'],
   ['squat_threshold', 0x90], ['squat_release_threshold', 0x94], ['aerial_neutral_x', 0xdc], ['aerial_neutral_y', 0xe0],
   ['lcancel_window', 0xe4, 'i'], ['lcancel_divisor', 0xe8], ['aerial_friction_out_of_bounds', 0x1fc],
-  ['special_lw_threshold', 0x21c], ['fall_platform_pass_threshold', 0x25c], ['landing_speed_threshold', 0x310],
+  ['special_lw_threshold', 0x21c], ['special_drift_stick_threshold', 0x258], ['fall_platform_pass_threshold', 0x25c], ['landing_speed_threshold', 0x310],
   ['escapeair_deadzone_x', 0x32c], ['escapeair_deadzone_y', 0x330], ['escapeair_iasa_timer', 0x334, 'i'],
   ['escapeair_force', 0x338], ['escapeair_decay', 0x33c], ['escapeair_fallspecial_mobility', 0x340],
   ['escapeair_landing_lag', 0x344], ['runbrake_anim_speed_threshold', 0x42c], ['run_start_frame_from_turnrun', 0x430],

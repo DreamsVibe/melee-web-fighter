@@ -12,6 +12,7 @@ Needs a melee-unlocked build with --fighter-trace (the fighter-trace branch) and
 built for (melee.iso at its root, or --iso).
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import shutil
 import subprocess
 import sys
@@ -38,15 +39,38 @@ def absolute(script_text: str) -> str:
 
 
 # A script that says "# p2 sandbag" on a line of its own gets Sandbag as player 2 (the prelude picks
-# Luigi; --p2-ckind swaps the pick before the match loads).
+# Luigi; --p2-ckind swaps the pick before the match loads, which works for Sandbag's small files).
 P2_KINDS = {"sandbag": 31}
 
+# Player 1 picks another character on the select screen itself ("# p1 captain"): swapping the pick
+# after the screen has preloaded Fox's files runs the game out of memory for bigger characters. These
+# replace the prelude's cursor move from Mario down to Fox and P1's pick (FOX_CURSOR, which also
+# holds P2's pick lines at the same frames: keep them in a replacement). "# p1css <line> | <line>"
+# in a script tries a cursor move directly (to find a new character's).
+FOX_CURSOR = "1020 sy=-127\n1024\n1040 A\n1040 p=2 A\n1050\n1050 p=2\n"
+P1_CURSOR = {
+    # Right along the top row from Mario (30-34 frames all pick Falcon), then A at 1060.
+    "captain": "1020 sx=127\n1052\n1040 p=2 A\n1050 p=2\n1060 A\n1070\n",
+    # Down to Fox, then left one (5-7 frames pick Falco).
+    "falco": "1020 sy=-127\n1024 sx=-127\n1030\n1040 p=2 A\n1050 p=2\n1060 A\n1070\n",
+}
 
-def p2_kind(script_text: str) -> int | None:
+
+def p1_cursor(script_text: str) -> str | None:
+    for line in script_text.splitlines():
+        words = line.strip().lstrip("#").split(None, 1)
+        if len(words) == 2 and words[0] == "p1" and words[1].strip() in P1_CURSOR:
+            return P1_CURSOR[words[1].strip()]
+        if len(words) == 2 and words[0] == "p1css":
+            return "".join(part.strip() + "\n" for part in words[1].split("|"))
+    return None
+
+
+def slot_kind(script_text: str, slot: str, kinds: dict) -> int | None:
     for line in script_text.splitlines():
         words = line.strip().lstrip("#").split()
-        if len(words) == 2 and words[0] == "p2" and words[1] in P2_KINDS:
-            return P2_KINDS[words[1]]
+        if len(words) == 2 and words[0] == slot and words[1] in kinds:
+            return kinds[words[1]]
     return None
 
 
@@ -73,6 +97,7 @@ def main() -> None:
     ap.add_argument("--melee-unlocked", type=Path, required=True)
     ap.add_argument("--iso", type=Path)
     ap.add_argument("--frames", type=int, default=2300)
+    ap.add_argument("-j", "--jobs", type=int, default=4, help="runs at once (each is its own process)")
     ap.add_argument("names", nargs="*")
     args = ap.parse_args()
     root = args.melee_unlocked.resolve()
@@ -100,17 +125,26 @@ def main() -> None:
     scripts = sorted((HERE / "scripts").glob("*.txt"))
     if args.names:
         scripts = [s for s in scripts if s.stem in args.names]
-    for s in scripts:
+    def one(s: Path) -> str:
         full = work / f"{s.stem}.full.txt"
         text = s.read_text(encoding="utf-8")
-        full.write_text(prelude + absolute(text), encoding="utf-8")
+        cursor = p1_cursor(text)
+        pre = prelude.replace(FOX_CURSOR, cursor) if cursor else prelude
+        if cursor and pre == prelude:
+            sys.exit("prelude.txt no longer has the Fox cursor move that p1 replaces")
+        full.write_text(pre + absolute(text), encoding="utf-8")
         card = work / f"card-{s.stem}"
         shutil.rmtree(card, ignore_errors=True)
         shutil.copytree(seed, card)
         trace = OUT / f"{s.stem}.csv"
-        run(exe, iso, root, full, trace, card, work, args.frames, p2_kind(text))
+        run(exe, iso, root, full, trace, card, work, args.frames,
+            slot_kind(text, "p2", P2_KINDS))
         rows = max(0, len(trace.read_text().splitlines()) - 1) if trace.exists() else 0
-        print(f"{s.stem}: {rows} frames -> {trace.relative_to(REPO)}")
+        return f"{s.stem}: {rows} frames -> {trace.relative_to(REPO)}"
+
+    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+        for line in pool.map(one, scripts):
+            print(line, flush=True)
 
 
 if __name__ == "__main__":

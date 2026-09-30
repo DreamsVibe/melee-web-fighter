@@ -1,0 +1,13 @@
+# p1 captain
+# Aerial Falcon Punches angled up, then down (the stick when the punch sets off picks the angle).
+200 X
+215
+222 B
+223 sy=100
+330
+400 X
+415
+422 B
+423 sy=-100
+530
+600

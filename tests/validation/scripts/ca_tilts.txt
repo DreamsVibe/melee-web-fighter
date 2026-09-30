@@ -1,0 +1,14 @@
+# p1 captain
+# Captain Falcon with the inputs of tilts.txt.
+# Forward tilt, up tilt and down tilt (stick below the smash threshold, then A).
+200 sx=45
+203 sx=45 A
+204
+260 sy=40
+263 sy=40 A
+264
+320 sy=-60
+328 sy=-60 A
+329 sy=-60
+360
+420

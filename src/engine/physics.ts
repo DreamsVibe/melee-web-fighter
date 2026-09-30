@@ -6,6 +6,7 @@ import type { Fighter, Named } from './types';
 const f = Math.fround;
 const abs = Math.abs;
 
+/** ftCommon_CalcGroundAccel_Deaccel. */
 export function groundDeaccel(fp: Fighter, friction: number): void {
   if (abs(friction) > abs(fp.grVel)) friction = -fp.grVel;
   else if (fp.grVel > 0) friction = -friction;
@@ -47,6 +48,7 @@ export function groundFriction(fp: Fighter, a: Named, c: Named): void {
   selfFromGround(fp);
 }
 
+/** ftCommon_CalcSelfAccel_Deaccel. */
 export function selfDeaccel(fp: Fighter, friction: number): void {
   let fr = friction;
   if (abs(fr) >= abs(fp.selfVel.x)) fr = -fp.selfVel.x;
@@ -80,6 +82,7 @@ export function airDrift(fp: Fighter, a: Named): void {
   selfAccelToVelClamped(fp, a, fp.selfVel.x, f(scaled + flat), f(lsx * a.air_drift_max), a.aerial_friction);
 }
 
+/** ftCommon_Fall. */
 export function fall(fp: Fighter, gravity: number, terminal: number): void {
   fp.selfVel.y = f(fp.selfVel.y - gravity);
   if (fp.selfVel.y < -terminal) fp.selfVel.y = f(-terminal);
@@ -118,6 +121,7 @@ export function deaccelQuickAir(fp: Fighter, a: Named, c: Named): void {
   fp.selfAccel.x = f(accel);
 }
 
+/** ftCommon_ClampAirDrift. */
 export function clampAirDrift(fp: Fighter, a: Named): void {
   if (fp.selfVel.x < -a.air_drift_max) fp.selfVel.x = f(-a.air_drift_max);
   else if (fp.selfVel.x > a.air_drift_max) fp.selfVel.x = f(a.air_drift_max);
@@ -155,4 +159,42 @@ export function groundRootMotionSet(fp: Fighter, friction: number, facing: numbe
 export function airRootMotion(fp: Fighter): void {
   fp.selfVel.x = f(fp.rootDelta.z * fp.facing);
   fp.selfVel.y = fp.rootDelta.y;
+}
+
+/** ft_80084EEC: gravity, then plain air friction (no drift). */
+export function airFallDeaccel(fp: Fighter, a: Named): void {
+  fall(fp, a.gravity, a.terminal_velocity);
+  selfDeaccel(fp, a.aerial_friction);
+}
+
+/**
+ * ftCommon_CalcSelfAccel_DeaccelQuick: air friction, the stronger out-of-bounds one above `max`.
+ * Returns whether the speed was above `max`.
+ */
+export function deaccelQuick(fp: Fighter, max: number, a: Named, c: Named): boolean {
+  const vel = fp.selfVel.x, over = abs(vel) > max;
+  const fr = over ? c.aerial_friction_out_of_bounds : a.aerial_friction;
+  let accel = fr;
+  if (abs(accel) >= abs(vel)) accel = -vel;
+  else if (vel > 0) accel = -fr;
+  fp.selfAccel.x = f(accel);
+  return over;
+}
+
+/** ftCommon_CalcSelfAccel_AccelToVel. */
+export function accelToVel(fp: Fighter, accel: number, target: number): void {
+  const v = fp.selfVel.x;
+  if (!target) accel = -v;
+  else if (!(v * accel < 0)) {
+    if (accel > 0) { if (f(v + accel) > target) accel = f(target - v); }
+    else if (f(v + accel) < target) accel = f(target - v);
+  }
+  fp.selfAccel.x = f(accel);
+}
+
+/** ftCommon_CalcSelfAccel_DriftSimple_NoFriction: drift towards the stick past `threshold`. */
+export function driftSimpleNoFriction(fp: Fighter, threshold: number, accelMax: number, targetMax: number): void {
+  const lx = fp.input.lx;
+  if (abs(lx) >= threshold) accelToVel(fp, f(lx * accelMax), f(lx * targetMax));
+  else accelToVel(fp, 0, 0);
 }

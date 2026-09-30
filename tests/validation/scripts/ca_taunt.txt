@@ -1,0 +1,6 @@
+# p1 captain
+# Captain Falcon with the inputs of taunt.txt.
+# Taunt.
+200 DU
+201
+320

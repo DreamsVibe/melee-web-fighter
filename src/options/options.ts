@@ -51,19 +51,22 @@ async function init(): Promise<void> {
   settings = await loadSettings();
   const imported = asText(await getFile('characters/fox/character.json'));
   const current = imported && (JSON.parse(imported).formatVersion ?? 0) >= FORMAT_VERSION;
-  const hasFalco = !!(await getFile('characters/falco/character.json'));
+  // A disc imported before a character was added has no folder for it.
+  const have = new Map(await Promise.all(CHARACTERS.map(async (c) => [c.id, !!(await getFile(`characters/${c.id}/character.json`))] as const)));
+  const missing = CHARACTERS.filter((c) => !have.get(c.id)).map((c) => c.name);
   $('importState').innerHTML = !imported
     ? '<b>Nothing is imported yet:</b> <a href="import.html">import your Melee disc</a> first.'
-    : !current ? '<b>This version needs your disc again</b> (for ledges): <a href="import.html">import it</a>.'
-      : !hasFalco ? '<b>Import your disc again to add Falco</b>: <a href="import.html">import it</a>.'
-        : 'Fox, Falco and Sandbag are imported. <a href="import.html">Re-import or preview</a>.';
+    : !current ? '<b>This version needs your disc again</b> (for Captain Falcon): <a href="import.html">import it</a>.'
+      : missing.length ? `<b>Import your disc again to add ${missing.join(' and ')}</b>: <a href="import.html">import it</a>.`
+        : `${CHARACTERS.map((c) => c.name).join(', ')} and Sandbag are imported. <a href="import.html">Re-import or preview</a>.`;
 
   // --- character
   const character = $<HTMLSelectElement>('character');
   character.replaceChildren(...CHARACTERS.map((c) => new Option(c.name, c.id)));
   character.value = settings.character;
   const characterMsg = () => {
-    $('characterMsg').textContent = character.value === 'falco' && !hasFalco ? 'Falco needs your disc imported again (link above).' : '';
+    const name = CHARACTERS.find((c) => c.id === character.value)?.name;
+    $('characterMsg').textContent = imported && !have.get(character.value as Settings['character']) ? `${name} needs your disc imported again (link above).` : '';
   };
   characterMsg();
   character.onchange = () => { characterMsg(); void saveSettings({ character: character.value as Settings['character'] }); };

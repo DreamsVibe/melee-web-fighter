@@ -1,0 +1,9 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_fsmash.txt.
+# p2 sandbag
+# Fox runs up to Sandbag and forward smashes it (uncharged): a launch, tumble and landing.
+230 sx=127
+268
+300 sx=127 A
+301
+700

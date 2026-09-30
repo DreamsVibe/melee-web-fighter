@@ -1,0 +1,8 @@
+# p1 captain
+# p2 sandbag
+# Run at Sandbag, stop, then Falcon Kick through it on the ground (each hit slows the kick).
+230 sx=127
+242
+282 sy=-127 B
+283
+700

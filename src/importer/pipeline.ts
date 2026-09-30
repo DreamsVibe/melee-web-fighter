@@ -8,7 +8,11 @@ import { writeMesh, writeSkeleton, writeTexture, type MaterialDef } from '../sha
 import { writeAnim } from '../shared/animfile';
 import { ftDataRoot, readActionTable, readFigatree, type ActionEntry } from './actions';
 import { convertSounds } from './sounds-convert';
-import { convertMoves, FOX_BEHAVIORS } from './moves-convert';
+import { convertMoves, FOX_BEHAVIORS, CAPTAIN_BEHAVIORS } from './moves-convert';
+import type { MotionDef } from '../shared/fighters';
+import { MOTIONS as FOX_MOTIONS } from '../shared/fighters/fox';
+import { MOTIONS as FALCO_MOTIONS } from '../shared/fighters/falco';
+import * as CA from '../shared/fighters/captain';
 import { readAttributes, readCommon, readExtras, readHurtboxes, readIllusion, readLaser, tidy } from './data-convert';
 import { FOX_SUBMOTIONS, SANDBAG_SUBMOTIONS } from './submotions';
 import { FOX_SPECIAL_FIELDS, SANDBAG_SPECIAL_FIELDS, type Field } from '../shared/attributes';
@@ -42,6 +46,8 @@ export interface CharacterSpec {
   illusion?: number;
   /** Joint constraints the character's code attaches to its model (HSD RObj). */
   constraints?: ConstraintDef[];
+  /** Its own motion states (src/shared/fighters, generated from the decomp by tools/fighter-gen.ts). */
+  motions?: MotionDef[];
 }
 
 /**
@@ -52,7 +58,7 @@ export interface ConstraintDef { joint: number; position?: number[]; aim?: numbe
 
 export const FOX: CharacterSpec = {
   id: 'fox', name: 'Fox', code: 'Fx', kind: 1, submotions: FOX_SUBMOTIONS, specialFields: FOX_SPECIAL_FIELDS,
-  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/fox.ssm', index: 11 }, laser: true, illusion: 2,
+  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/fox.ssm', index: 11 }, laser: true, illusion: 2, motions: FOX_MOTIONS,
 };
 /**
  * Falco runs on Fox's code: ftFc_Init_MotionStateTable points at the ftFx functions, with the same
@@ -61,7 +67,16 @@ export const FOX: CharacterSpec = {
  */
 export const FALCO: CharacterSpec = {
   id: 'falco', name: 'Falco', code: 'Fc', kind: 0x16, submotions: FOX_SUBMOTIONS, specialFields: FOX_SPECIAL_FIELDS,
-  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/falco.ssm', index: 10 }, laser: true, illusion: 3,
+  behaviors: FOX_BEHAVIORS, bank: { file: 'audio/us/falco.ssm', index: 10 }, laser: true, illusion: 3, motions: FALCO_MOTIONS,
+};
+/**
+ * Captain Falcon (ft/kinds/ftCaptain). His own motion ids start with six item swings (341-346, unused
+ * without items); his specials are 347-363. Ganondorf runs the same code (ftCa_Init_OnLoadForGanon).
+ */
+export const CAPTAIN: CharacterSpec = {
+  id: 'captain', name: 'Captain Falcon', code: 'Ca', kind: 2, submotions: CA.SUBMOTIONS,
+  specialFields: CA.SPECIAL_FIELDS, behaviors: CAPTAIN_BEHAVIORS, bank: { file: 'audio/us/captain.ssm', index: 6 },
+  motions: CA.MOTIONS,
 };
 export const SANDBAG: CharacterSpec = {
   id: 'sandbag', name: 'Sandbag', code: 'Sb', kind: 0x20, submotions: SANDBAG_SUBMOTIONS,
@@ -74,9 +89,9 @@ export const SANDBAG: CharacterSpec = {
     { joint: 7, aim: 37, rotXMin: -Math.PI / 2, rotXMax: -Math.PI / 2 },
   ],
 };
-export const CHARACTERS = [FOX, FALCO, SANDBAG];
+export const CHARACTERS = [FOX, FALCO, CAPTAIN, SANDBAG];
 /** The characters a player can pick. */
-export const PLAYABLE = [FOX, FALCO];
+export const PLAYABLE = [FOX, FALCO, CAPTAIN];
 export const charDir = (c: CharacterSpec) => `characters/${c.id}/`;
 export const CHAR_DIR = charDir(FOX);
 
@@ -214,6 +229,8 @@ export async function buildFolder(disc: Disc, progress: Progress, log: Log): Pro
       // Push box (ftData +0x50): x offset and half width, for fighters shoving each other on the ground.
       push: [archive.f32(archive.ptr(root + 0x50)), archive.f32(archive.ptr(root + 0x50) + 4)].map(tidy),
       constraints: spec.constraints ?? [],
+      // Own motion states [id, name, move, move id]: the engine takes stale-move ids from here.
+      motions: spec.motions ?? [],
       articles: {
         ...(spec.laser ? { laser: readLaser(archive) } : {}),
         ...(spec.illusion !== undefined ? { illusion: readIllusion(archive, spec.illusion) } : {}),

@@ -6,7 +6,7 @@
 import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { GA } from '../types';
-import { STATES, specials, collAirLand, collStop, fallSpecialEnter, waitEnter, type StateDef } from '../states';
+import { addStates, collAirLand, collStop, fallSpecialEnter, waitEnter, type Kit, type StateDef } from '../states';
 import { airPhysics, clampAirDrift, deaccelQuickAir, fall, groundDeaccel, groundFriction, selfDeaccel, selfFromGround } from '../physics';
 import { airCollision, groundCollision, EdgeMode, isOnPlatform } from '../collision';
 import { ledgeCatchCheck } from '../cliff';
@@ -230,11 +230,8 @@ const defs: StateDef[] = [
   },
 ];
 
-let registered = false;
-export function registerFirefox(): void {
-  if (registered) return;
-  registered = true;
-  for (const d of defs) STATES.set(d.id, d);
-  specials.groundHi = groundEnter;
-  specials.airHi = airEnter;
+export function registerFirefox(kit: Kit): void {
+  addStates(kit, defs);
+  kit.specials.groundHi = groundEnter;
+  kit.specials.airHi = airEnter;
 }

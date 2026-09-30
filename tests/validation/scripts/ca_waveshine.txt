@@ -1,0 +1,10 @@
+# p1 captain
+# Captain Falcon with the inputs of waveshine.txt.
+# Waveshine: shine, jump out of it, air dodge diagonally into the ground.
+200 B sy=-127
+201
+204 X
+205
+207 R sx=100 sy=-60
+208
+300

@@ -1,0 +1,12 @@
+# p1 captain
+# Captain Falcon with the inputs of dashattack.txt.
+# Dash attack, standing grab, and a dash grab back the other way (Z).
+200 sx=127
+204 sx=127 A
+205
+280 Z
+281
+340 sx=-127
+344 sx=-127 Z
+345
+420

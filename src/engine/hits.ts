@@ -14,6 +14,8 @@ const DEG = Math.PI / 180;
 /** HitElement_Catch: grab boxes never damage. HitElement_Electric: longer hitlag for the victim. */
 const ELEMENT_CATCH = 8;
 const ELEMENT_ELECTRIC = 2;
+/** HitElement_Inert: touches without hitting; the attacker only learns whom (unk_gobj, hurtbox_detect_cb). */
+const ELEMENT_INERT = 11;
 
 /**
  * lbColl_803B9880: the sound a landed hit plays, by the hitbox's sound kind and severity (0x83D60 =
@@ -26,7 +28,10 @@ const HIT_SOUNDS = [
 ];
 
 // ============================================================================ stale moves
-/** The move id a motion state gives its attacks (the motion table's move_id, FtMoveId). */
+/**
+ * The move id a common motion state gives its attacks (the motion table's move_id, FtMoveId). A
+ * character's own states (from 341) take theirs from its motion table (`CharacterData.moveIds`).
+ */
 export function moveIdOf(msid: number): number {
   if (msid === 44) return 2;
   if (msid === 45) return 3;
@@ -41,11 +46,6 @@ export function moveIdOf(msid: number): number {
   if (msid === 64) return 12;
   if (msid >= 65 && msid <= 69) return 13 + msid - 65;
   if (msid >= 70 && msid <= 74) return 13 + msid - 70; // landing keeps its aerial's move id
-  // Fox's specials (ftFx_Init_MotionStateTable): neutral, side, up, down B.
-  if (msid >= 341 && msid <= 346) return 18;
-  if (msid >= 347 && msid <= 352) return 19;
-  if (msid >= 353 && msid <= 359) return 20;
-  if (msid >= 360 && msid <= 369) return 21;
   // Ledge attacks (ftCo_MS_CliffAttackSlow / Quick).
   if (msid === 256) return 61;
   if (msid === 257) return 62;
@@ -222,6 +222,7 @@ export function attackColl(victim: Engine, all: Engine[]): void {
     for (const h of attacker.fighter.hitboxes) {
       if (!canHit(h, victim)) continue;
       const hurt = hit(h);
+      if (hurt && h.element === ELEMENT_INERT) { attacker.fighter.detected = victim; continue; }
       if (hurt && registerHit(attacker, h, victim, hurt, a, b, attacker.fighter.pos.x, 0, attacker.fighter.hitboxes, attacker.fighter.attackId, attacker.fighter.attackInstance, false)) {
         // ftColl_80078C70: the attacker's hit sound (lbColl_80005BB0), or a dull one on an invincible fighter.
         const sound = invincible(victim.fighter) ? [141, 142, 143][h.sfxLevel] ?? 141 : HIT_SOUNDS[h.sfxKind * 3 + h.sfxLevel];
@@ -395,6 +396,13 @@ export function collResolve(e: Engine): void {
     hitlagFrom = fp.dealtDamage;
   }
   if (!fp.kbApplied && fp.percentTemp) takeDamage(e, fp.percentTemp);
+  // Fighter_procCollResolve's reaction chain: took a hit, else dealt damage (deal_dmg_cb), else one of
+  // its inert hitboxes touched someone (hurtbox_detect_cb).
+  if (!fp.kbApplied && !fp.damageApplied) {
+    if (fp.dealtDamage) fp.onDealDamage?.(e);
+    else if (fp.detected) fp.onDetect?.(e);
+  }
+  fp.detected = null;
   if (hitlagFrom) {
     // ftCommon_CalcHitlag, capped.
     let frames = Math.trunc(Math.trunc(f(f(hitlagFrom * c.hitlag_damage_mul) + c.hitlag_add)) * fp.hitlagMul);

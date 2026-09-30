@@ -1,0 +1,12 @@
+# p1 captain
+# Captain Falcon with the inputs of fastfall.txt.
+# Short hop fast fall at the peak, then a full hop fast fall.
+200 X
+201
+215 sy=-127
+217
+280 X
+290
+305 sy=-127
+307
+380

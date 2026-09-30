@@ -1,0 +1,10 @@
+# p1 captain
+# p2 sandbag
+# Run towards Sandbag, short hop, then Raptor Boost into it in the air (the hit: SpecialAirS).
+230 sx=127
+250
+290 X
+291
+297 sx=127 B
+298
+700

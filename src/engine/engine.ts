@@ -4,7 +4,7 @@
 // then hitbox positions, attack collision and damage. A World (world.ts) runs several engines phase
 // by phase, as the game runs every fighter's proc of one priority before the next priority.
 import type { Cmd } from '../shared/move';
-import { applyConstraints, restPose, worldMatrices } from '../render/pose';
+import { applyConstraints, eulerToQuat, restPose, slerp, worldMatrices, type JointQuats } from '../render/pose';
 import { applyAnim } from '../render/animator';
 import { sampleTrack } from '../render/fobj';
 import { BTN, emptyFloats, padToFloats, type PadFloats, type PadState } from './pad';
@@ -13,7 +13,7 @@ import { clampGroundVel } from './physics';
 import { loadEcb, ECB_AIR, ECB_GROUND } from './collision';
 import { SegKind, type Segment, type StageData } from './stagetypes';
 import { GA, Smash, type Afterimage, type CharacterData, type EngineApi, type EngineEvent, type Fighter, type HitboxState, type ItemCmd, type Named, type Plugin, type Projectile } from './types';
-import { STATES, MS, type StateDef } from './states';
+import { STATES, MS, type SpecialHooks, type StateDef } from './states';
 import { collResolve, fighterNudge, moveIdOf, staleMultiplier } from './hits';
 import { damageExitHitlag, WAIT_REVERSE } from './damage';
 import type { World } from './world';
@@ -70,6 +70,7 @@ function newFighter(data: CharacterData): Fighter {
     ecb: ecb(), prevEcb: ecb(), desiredEcb: ecb(), ecbLock: 0, ecbLocked: false,
     floor: null, floorSkip: null, envFlags: 0, lstickAngle: 0, dead: false,
     local: new Float32Array(J * 9), world: new Float32Array(J * 12), poseDirty: true,
+    blend: { move: null, frame: 0, first: false, weight: 0 }, onDealDamage: null, onDetect: null, detected: null,
     percent: 0, percentTemp: 0, damageApplied: 0, kbApplied: 0, kbAngle: 0, hitDir: 1, hurtHeight: 1, dealtDamage: 0, sinceHit: -1,
     damageLog: [], tipLog: [], phantomHitlag: 0, phantomFrames: 0, phantomDamage: 0, phantomSource: null, hitlagMul: 1, kbVel: { x: 0, y: 0 }, groundKbVel: 0, hitlag: 0, inHitlag: false, allowSdi: false, postHitlag: null,
     hitstun: 0, inHitstun: false, invincible: false, intangible: false, invincibleFrames: 0, intangibleFrames: 0, bodyState: 0,
@@ -101,8 +102,10 @@ export class Engine implements EngineApi {
   c: Named;
   pad: PadFloats = emptyFloats();
   private rest: Float32Array;
+  private blendLocal: Float32Array;
+  private quats: JointQuats;
+  private quatTmp = new Float32Array(8);
   private scratch: Float32Array;
-  private states: Map<number, StateDef> = STATES;
   private lastPos = { x: 0, y: 0 };
   /** Behavior modules by name (`behavior shine` in a .move file). */
   behaviors = new Map<string, Partial<StateDef>>();
@@ -115,11 +118,13 @@ export class Engine implements EngineApi {
 
   constructor(public data: CharacterData) {
     this.fighter = newFighter(data);
-    // Motion ids from 341 are each character's own: Fox's specials, Sandbag's WaitReverse.
-    if (data.id === 'sandbag') this.states = new Map([...[...STATES].filter(([id]) => id < 341), [WAIT_REVERSE.id, WAIT_REVERSE]]);
+    // Sandbag's one own state (motion 341) comes from the damage code, not a behavior module.
+    if (data.id === 'sandbag') data.kit.states.set(WAIT_REVERSE.id, WAIT_REVERSE);
     this.a = { ...data.attrs };
     this.c = data.common;
     this.rest = restPose(data.skeleton);
+    this.blendLocal = new Float32Array(data.skeleton.length * 9);
+    this.quats = { q: new Float32Array(data.skeleton.length * 4), on: new Uint8Array(data.skeleton.length) };
     this.scratch = new Float32Array(data.skeleton.length * 3);
   }
 
@@ -143,7 +148,7 @@ export class Engine implements EngineApi {
   }
 
   changeState(name: string, animStart = 0): void {
-    const def = [...this.states.values()].find((s) => s.name === name);
+    const def = [...this.data.kit.states.values(), ...STATES.values()].find((s) => s.name === name);
     if (def) this.changeMotion(def.id, MF.None, animStart, 1);
   }
 
@@ -524,6 +529,8 @@ export class Engine implements EngineApi {
       // Root-motion animations: the game moves TransN's translation into the fighter's velocity.
       if (move.animFlags & 0x80000000) { const o = this.data.transN * 9; fp.local[o + 6] = fp.local[o + 7] = fp.local[o + 8] = 0; }
     }
+    this.quats.on.fill(0);
+    if (fp.blend.weight && fp.blend.move?.anim) this.blendPose();
     // ftPartSetRotX on XRotN (Firefox points Fox along his flight).
     const xRotN = this.data.parts[2];
     if (!Number.isNaN(fp.xRot) && xRotN !== undefined) fp.local[xRotN * 9] = fp.xRot;
@@ -531,22 +538,78 @@ export class Engine implements EngineApi {
     fp.local[1] = Math.PI / 2 * fp.facing;
     const s = this.data.modelScale;
     fp.local[3] = fp.local[4] = fp.local[5] = s;
-    worldMatrices(this.data.skeleton, fp.local, fp.world, this.scratch);
+    worldMatrices(this.data.skeleton, fp.local, fp.world, this.scratch, null, this.quats);
     if (this.data.constraints.length) applyConstraints(this.data.skeleton, this.data.constraints, fp.local, fp.world, this.scratch);
   }
 
+  /**
+   * ftAnim_8006FE9C / 8006FF74: the second animation's pose over the main one, for every part from
+   * TransN on. Translation and scale mix linearly; rotations are slerped as quaternions (lb_8000C490)
+   * unless they're within 0.0001 already. TransN and part 0x35 (flags_b4), and everything at weight 1,
+   * take the second pose outright. Bones moved by dynamics (flags_b0) aren't simulated here.
+   */
+  private blendPose(): void {
+    const fp = this.fighter, b = fp.blend, L = fp.local, S = this.blendLocal, q = this.quats.q;
+    S.set(this.rest);
+    applyAnim(b.move!.anim!, Math.max(0, b.frame), S);
+    const t = b.weight, ti = f(1 - t), parts = this.data.parts;
+    for (let part = 1; part < parts.length; part++) {
+      const j = parts[part];
+      if (j === undefined || j < 0 || j >= this.data.skeleton.length) continue;
+      const o = j * 9;
+      if (t === 1 || part === 1 || part === 0x35) { for (let k = 0; k < 9; k++) L[o + k] = S[o + k]; continue; }
+      for (let k = 3; k < 9; k++) L[o + k] = f(S[o + k] * t + L[o + k] * ti);
+      if (Math.abs(S[o] - L[o]) <= 0.0001 && Math.abs(S[o + 1] - L[o + 1]) <= 0.0001 && Math.abs(S[o + 2] - L[o + 2]) <= 0.0001) {
+        L[o] = S[o]; L[o + 1] = S[o + 1]; L[o + 2] = S[o + 2];
+        continue;
+      }
+      const q1 = this.quatTmp;
+      eulerToQuat(S[o], S[o + 1], S[o + 2], q1, 0);
+      eulerToQuat(L[o], L[o + 1], L[o + 2], q1, 4);
+      let sums = 0, diffs = 0;
+      for (let k = 0; k < 4; k++) { sums += (q1[k] + q1[4 + k]) ** 2; diffs += (q1[k] - q1[4 + k]) ** 2; }
+      if (diffs > sums) for (let k = 4; k < 8; k++) q1[k] = -q1[k];
+      slerp(q1, 0, q1, 4, q, j * 4, ti);
+      this.quats.on[j] = 1;
+    }
+  }
+
+  /** Starts the blended second animation at `frame` (ftAnim_8006EDD0); its first step doesn't advance. */
+  setBlendAnim(moveName: string, frame: number): void {
+    const b = this.fighter.blend;
+    b.move = this.data.moves.get(moveName) ?? null;
+    b.frame = frame;
+    b.first = true;
+    this.fighter.poseDirty = true;
+  }
+
+  /** HSD_JObjAnimAll on the second animation: one frame at rate 1 (AObj rules, like animAdvance). */
+  blendAnimStep(): void {
+    const b = this.fighter.blend, m = b.move;
+    if (!m?.anim) return;
+    const end = m.anim.frameCount;
+    if (b.first) b.first = false;
+    else if (b.frame < end || (m.animFlags & 0x40000000)) b.frame = f(b.frame + 1);
+    if ((m.animFlags & 0x40000000) && end <= b.frame) b.frame = end > 0 ? f(b.frame % end) : 0;
+    this.fighter.poseDirty = true;
+  }
+
   // ------------------------------------------------------------------ state machine
-  def(): StateDef { return this.states.get(this.fighter.motionId) ?? this.states.get(MS.Fall)!; }
+  /** The character's own state for a motion id, or the common one. */
+  stateOf(msid: number): StateDef | undefined { return this.data.kit.states.get(msid) ?? STATES.get(msid); }
+  /** Its special-move entry points (ftData_SpecialN/S/Hi/Lw). */
+  get specials(): SpecialHooks { return this.data.kit.specials; }
+  def(): StateDef { return this.stateOf(this.fighter.motionId) ?? STATES.get(MS.Fall)!; }
 
   /** Fighter_ChangeMotionState (ft/fighter.c:935), the parts v1 uses. */
   changeMotion(msid: number, flags: number, animStart = 0, animSpeed = 1): void {
     const fp = this.fighter;
-    const def = this.states.get(msid);
+    const def = this.stateOf(msid);
     if (!def) return; // states outside v1 are never entered
     const from = fp.motionName;
     if (from) for (const p of this.plugins) p.stateExit?.(this, from);
     // ft_800890D0: a new attack (for stale moves) whenever the move id changes or is the default.
-    const moveId = moveIdOf(msid);
+    const moveId = msid >= 341 ? this.data.moveIds.get(msid) ?? 1 : moveIdOf(msid);
     if (moveId === 1 || moveId !== fp.attackId) { fp.attackId = moveId; fp.attackInstance = nextAttackInstance(); }
     const hadRootMotion = !!fp.move && (fp.move.animFlags & 0x80000000) !== 0;
     fp.motionId = msid;
@@ -555,6 +618,9 @@ export class Engine implements EngineApi {
     if (!(flags & MF.SkipHit)) for (const h of fp.hitboxes) h.active = false;
     fp.reflecting = false;
     fp.shielding = false; // the shield states raise it again
+    // The new animation sets every joint again, so a blended second animation ends with the state.
+    fp.blend.move = null; fp.blend.weight = 0;
+    fp.onDealDamage = null; fp.onDetect = null;
     fp.bodyState = 0; // Fighter_ChangeMotionState: the script sets it again (ftColl_8007B62C)
     if (!(flags & MF.KeepFastFall)) fp.fallFast = false;
     fp.floorSkip = null;
@@ -628,6 +694,8 @@ export class Engine implements EngineApi {
       }
       case 'hitbox_damage': this.setHitboxDamage(fp.hitboxes[c.id & 3], c.value); break;
       case 'hitbox_size': fp.hitboxes[c.id & 3].size = c.value; break;
+      // ftAction_80071708: x42_b5 (hits fighters); x42_b7 only matters for items, which aren't modelled.
+      case 'hitbox_flag': if (!c.which) fp.hitboxes[c.id & 3].fighters = !!c.value; break;
       case 'remove_hitbox': fp.hitboxes[c.id & 3].active = false; break;
       case 'clear_hitboxes': for (const h of fp.hitboxes) h.active = false; break;
       case 'sound':
@@ -695,7 +763,11 @@ export class Engine implements EngineApi {
   /** ftCommon_8007D6A4 / 8007D7FC: land (self velocity becomes ground velocity). */
   toGround(): void {
     const fp = this.fighter;
-    clampGroundVelFromSelf(fp, this.a.ground_max_horizontal_velocity);
+    // A root-motion animation lands at its own speed (x594_b0: TransN's step this frame).
+    if (fp.move && (fp.move.animFlags & 0x80000000)) fp.selfVel.x = f(fp.rootDelta.z * fp.facing);
+    // ftCommon_ClampGroundVel runs on the old ground speed, which is then replaced unclamped.
+    clampGroundVel(fp, this.a.ground_max_horizontal_velocity);
+    fp.grVel = fp.selfVel.x;
     fp.ga = GA.Ground;
     fp.jumpsUsed = 0;
     fp.ecbLock = 0;
@@ -921,9 +993,4 @@ function sandbagDecel(kb: number, d: number): number {
 }
 
 /** Landing: gr_vel = self_vel.x clamped to the ground max (ftCommon_8007D6A4). */
-function clampGroundVelFromSelf(fp: Fighter, max: number): void {
-  fp.grVel = fp.selfVel.x;
-  clampGroundVel(fp, max);
-}
-
 export { F32_MAX };

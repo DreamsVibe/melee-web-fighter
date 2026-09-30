@@ -1,6 +1,9 @@
-// Importer page: pick the disc, verify it, convert Fox, Falco and Sandbag, store the character folders.
+// Importer page: pick the disc, verify it, convert every character (pipeline.ts CHARACTERS), store the folders.
 import { Disc, DiscError } from './disc';
-import { runImport } from './pipeline';
+import { runImport, CHARACTERS } from './pipeline';
+
+/** "Fox, Falco, Captain Falcon and Sandbag". */
+const NAMES = CHARACTERS.map((c) => c.name).join(', ').replace(/, ([^,]*)$/, ' and $1');
 import { startPreview } from './preview';
 import { readAnim } from '../shared/animfile';
 import { applyAnim } from '../render/animator';
@@ -44,7 +47,7 @@ startBtn.addEventListener('click', async () => {
       say(text);
     }, (line) => { log.textContent += line + '\n'; log.scrollTop = log.scrollHeight; });
     progress.value = 1;
-    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: Fox, Falco and Sandbag take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
+    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${NAMES} take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
     await showPreview();
   } catch (err) {
     console.error(err);
@@ -106,7 +109,11 @@ import('../shared/db').then(async ({ getFile, asText, FORMAT_VERSION }) => {
   const info = asText(await getFile('characters/fox/character.json'));
   if (!info) return;
   if ((JSON.parse(info).formatVersion ?? 0) < FORMAT_VERSION) say('An older import was found: import your disc again (this version needs more from it, such as ledges).');
-  else if (!(await getFile('characters/falco/character.json'))) say('An older import was found: import your disc again to add Falco.');
-  else say('Fox, Falco and Sandbag are already imported. Import again to refresh them.');
+  else {
+    const missing = [];
+    for (const c of CHARACTERS) if (!(await getFile(`characters/${c.id}/character.json`))) missing.push(c.name);
+    if (missing.length) say(`An older import was found: import your disc again to add ${missing.join(' and ')}.`);
+    else say(`${NAMES} are already imported. Import again to refresh them.`);
+  }
   await showPreview();
 });

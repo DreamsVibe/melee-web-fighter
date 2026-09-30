@@ -1,0 +1,12 @@
+# p1 captain
+# Captain Falcon with the inputs of wavedash.txt.
+# Wavedash right, then wavedash left (air dodge on the first airborne frame).
+200 X
+201
+203 R sx=100 sy=-60
+204
+280 X
+281
+283 R sx=-100 sy=-60
+284
+360

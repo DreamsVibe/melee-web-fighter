@@ -1,0 +1,9 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_usmash.txt.
+# p2 sandbag
+# Up smash from close: Sandbag goes straight up and lands tumbling.
+230 sx=127
+268
+300 sy=127 A
+301
+700

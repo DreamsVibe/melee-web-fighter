@@ -16,14 +16,14 @@ export type KeyAction = typeof KEY_ACTIONS[number];
 export type KeyboardMapping = Record<KeyAction, string[]>;
 
 /** The characters a player can pick (their folders are characters/<id>/). */
-export const CHARACTERS = [{ id: 'fox', name: 'Fox' }, { id: 'falco', name: 'Falco' }] as const;
+export const CHARACTERS = [{ id: 'fox', name: 'Fox' }, { id: 'falco', name: 'Falco' }, { id: 'captain', name: 'Captain Falcon' }] as const;
 export type CharacterId = typeof CHARACTERS[number]['id'];
 
 export interface Settings {
   /** Who you play. */
   character: CharacterId;
   adapterPort: number;           // 1-4
-  fighterHeightPx: number;       // Fox's standing height on the page, sets px_per_unit (Falco is drawn to the same scale)
+  fighterHeightPx: number;       // Fox's standing height on the page, sets px_per_unit (the others are drawn to the same scale)
   volume: number;                // 0-1
   debug: boolean;                // collision/hitbox draw (also F9)
   disabledOverrides: string[];   // override paths switched off

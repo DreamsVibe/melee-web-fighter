@@ -1,0 +1,10 @@
+# p1 captain
+# Captain Falcon with the inputs of doublejump.txt.
+# Full hop, double jump 20 frames later, drift right while falling.
+200 X
+210
+220 X
+222
+240 sx=90
+270
+340

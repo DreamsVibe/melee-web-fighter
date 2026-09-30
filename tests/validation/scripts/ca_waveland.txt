@@ -1,0 +1,8 @@
+# p1 captain
+# Captain Falcon with the inputs of waveland.txt.
+# Full hop, then air dodge straight down into the stage while falling.
+200 X
+210
+232 R sy=-127
+233
+320

@@ -1,0 +1,16 @@
+# p1 captain
+# Captain Falcon with the inputs of sb_tilts.txt.
+# p2 sandbag
+# Forward tilt, down tilt, up tilt in a row: stacking percent, small launches.
+230 sx=127
+268
+300 sx=50
+303 sx=50 A
+304
+360 sy=-60
+366 sy=-60 A
+367
+420 sy=50
+423 sy=50 A
+424
+700

@@ -1,5 +1,5 @@
 // Wires the parts together on the page: bridge (data + adapter), input, stage, engine (the player's
-// character, Fox or Falco, and Sandbag when it's on), renderers and audio. Owns the overlay and tears
+// character (Fox, Falco or Captain Falcon), and Sandbag when it's on), renderers and audio. Owns the overlay and tears
 // everything down on destroy().
 import { Overlay } from './overlay';
 import { BridgeClient } from './bridge-client';
@@ -161,7 +161,7 @@ export class Game {
     this.engine.plugins = pluginsFor(this.settings);
     this.loadSandbag(files);
     this.audio!.load(files);
-    // The page's scale always comes from Fox, so Falco stands taller, as he does next to Fox in the game.
+    // The page's scale always comes from Fox, so the others stand next to Fox as they do in the game.
     const fox = dir === FOX || !files.has(FOX + 'character.json') ? { model, info } : loadModel(files, FOX);
     this.fighterHeight = measureHeight(fox.model, fox.info.modelScale);
   }

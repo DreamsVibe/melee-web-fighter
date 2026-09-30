@@ -7,7 +7,7 @@ import type { Engine } from '../engine';
 import { MF } from '../engine';
 import { BTN } from '../pad';
 import { GA } from '../types';
-import { STATES, specials, collStop, fallSpecialEnter, landingFallSpecialEnter, waitEnter, type StateDef } from '../states';
+import { addStates, collStop, fallSpecialEnter, landingFallSpecialEnter, waitEnter, type Kit, type StateDef } from '../states';
 import { airRootMotion, fall, groundDeaccel, groundFriction, groundRootMotionSet, selfDeaccel, selfFromGround } from '../physics';
 import { airCollision, groundCollision, EdgeMode } from '../collision';
 import { ledgeCatchCheck } from '../cliff';
@@ -171,11 +171,8 @@ const defs: StateDef[] = [
   },
 ];
 
-let registered = false;
-export function registerIllusion(): void {
-  if (registered) return;
-  registered = true;
-  for (const d of defs) STATES.set(d.id, d);
-  specials.groundS = groundEnter;
-  specials.airS = airEnter;
+export function registerIllusion(kit: Kit): void {
+  addStates(kit, defs);
+  kit.specials.groundS = groundEnter;
+  kit.specials.airS = airEnter;
 }
