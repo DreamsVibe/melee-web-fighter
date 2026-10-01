@@ -1,43 +1,31 @@
-// Wires the parts together on the page: bridge (data + adapter), input, stage, engine (the player's
-// character (Fox, Falco or Captain Falcon), and Sandbag when it's on), renderers and audio. Owns the overlay and tears
-// everything down on destroy().
+// Wires the parts together: bridge (data + adapter), input, the arena (the web page, or one of Melee's
+// stages on the extension's stage page), engine (the player's character (Fox, Falco or Captain Falcon),
+// and Sandbag when it's on), renderers and audio. Owns the overlay and tears everything down on destroy().
 import { Overlay } from './overlay';
 import { BridgeClient } from './bridge-client';
-import { View } from './view';
 import { effectiveFiles, loadModel, text, type CharacterInfo } from '../shared/character';
 import { FighterRenderer, type FighterModel } from '../render/fighter';
-import { ortho, placement } from '../render/mat4';
+import { placement } from '../render/mat4';
 import { InputManager } from './input';
 import { DebugLayer } from './debug';
 import { EffectsLayer } from './effects';
 import { CanvasQuad } from '../render/quad';
 import { emptyPad } from '../engine/pad';
 import { CHARACTERS, withDefaults, type Settings } from '../shared/settings';
-import { PageStage } from './stage';
+import { PageArena, StageArena, type Arena } from './arena';
 import { Engine } from '../engine/engine';
 import { World } from '../engine/world';
-import { SegKind } from '../engine/stagetypes';
-import { loadCharacter } from '../engine/load';
+import { loadCharacter, loadStage } from '../engine/load';
 import { AudioPlayer } from '../audio/audio';
 import { pluginsFor } from '../plugins';
 import { ADAPTER_PORT, describeAdapter, type AdapterMessage } from '../shared/adapter-link';
 import { FORMAT_VERSION } from '../shared/db';
+import { STAGE_LIST } from '../shared/stages';
 import type { Fighter } from '../engine/types';
 import { restPose, worldMatrices } from '../render/pose';
 
 const FOX = 'characters/fox/';
 const SANDBAG = 'characters/sandbag/';
-/** How far from Fox (Melee units) Sandbag appears, and how far past the screen edge it may go. */
-const SANDBAG_GAP = 22;
-const SANDBAG_OFFSCREEN = 12;
-/**
- * Spawn spots: a platform at least this far below the top of the screen (room for a fighter to stand
- * in view, and below fixed headers), and this far in from the sides.
- */
-const SPAWN_HEADROOM = 22;
-const SPAWN_SIDE = 8;
-/** Sandbag comes back at least this far from Fox. */
-const RESPAWN_AWAY = 40;
 
 /** Something the user has to do first (import the disc, or import it again): shown, not logged as an error. */
 export class SetupError extends Error {}
@@ -45,9 +33,13 @@ export class SetupError extends Error {}
 /** Whether this script can still reach the extension (a reload or update cuts off the old copy). */
 const extensionAlive = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
 
+export interface GameOptions {
+  /** Play on this Melee stage (stages/<id>/) instead of the page. */
+  stage?: string;
+}
+
 export class Game {
   readonly overlay = new Overlay();
-  readonly view = new View();
   readonly input = new InputManager();
   readonly debug = new DebugLayer();
   readonly effects = new EffectsLayer();
@@ -57,9 +49,9 @@ export class Game {
   private model: FighterModel | null = null;
   private info: CharacterInfo | null = null;
   private quad: CanvasQuad | null = null;
-  private stage: PageStage | null = null;
+  private arena: Arena | null = null;
   private engine: Engine | null = null;
-  /** Fox and Sandbag have appeared (after the first page scan). */
+  /** The fighters have appeared (a page after its first scan). */
   private spawned = false;
   private readonly world = new World();
   private sandbag: Engine | null = null;
@@ -69,24 +61,34 @@ export class Game {
   private pad = emptyPad();
   private proj = new Float32Array(16);
   private place = new Float32Array(16);
-  /** Fox's standing height in Melee units (measured from his model at load); sets the page's scale. */
+  /** Fox's standing height in Melee units (measured from his model at load); sets a page's scale. */
   private fighterHeight = 14;
   private stepMs = 0;
-  /** Worst per-frame stage update since the last stats line (dev builds log it). */
+  /** Worst per-frame arena update since the last stats line (dev builds log it). */
   private stageMaxMs = 0;
   /** Runtime port to the service worker, which runs the adapter helper. */
   private adapterLink: chrome.runtime.Port | null = null;
   private adapterLatency = 0;
   private destroyed = false;
+  /** A menu is open over the game: time stands still and the keyboard is the menu's. */
+  private paused = false;
   /** Called when the extension went away under this copy and it removed itself from the page. */
   onOrphaned: (() => void) | null = null;
 
-  constructor() {
+  constructor(private opts: GameOptions = {}) {
     this.bridge = new BridgeClient({
       onChanged: () => this.reload(),
       onSettings: () => { this.applySettings(); this.reload(); },
     });
   }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.input.enabled = !paused;
+  }
+
+  /** The arena's view (the page's scroll, or the stage camera). */
+  get view() { return this.arena!.view; }
 
   async start(): Promise<void> {
     const t0 = performance.now();
@@ -99,23 +101,31 @@ export class Game {
     this.gl = gl;
     this.quad = new CanvasQuad(gl);
     this.audio = new AudioPlayer(this.settings.volume);
+    this.arena = this.makeArena(gl);
     this.loadAll();
-    this.stage = new PageStage(this.view, { minSolidPx: this.settings.minSolidPx, minSegmentPx: this.settings.minSegmentPx, maxSegments: this.settings.maxSegments });
-    this.stage.ignore.add(this.overlay.canvas);
     this.applySettings();
-    // Fox (and Sandbag) appear once the first page scan is done, on platforms in view (see step()).
-    this.stage.update();
-    this.world.setStage(this.stage.data);
-    this.world.respawn = (e) => (e === this.sandbag ? this.sandbagRespawn() : this.foxRespawn());
+    // The fighters appear once the arena is ready (a page after its first scan; see step()).
+    this.world.setStage(this.arena.data);
+    this.world.respawn = (e) => (e === this.sandbag ? this.arena!.sandbagRespawn(this.engine!.fighter) : this.arena!.playerRespawn());
     this.overlay.onStep = () => this.step();
     this.overlay.onRender = () => this.render();
     this.input.onKey = (code) => { if (code === 'F9') this.debug.setEnabled(!this.debug.enabled); };
     this.overlay.addDisposer(() => {
-      this.input.destroy(); this.debug.destroy(); this.effects.destroy(); this.stage?.destroy(); this.audio?.destroy();
+      this.input.destroy(); this.debug.destroy(); this.effects.destroy(); this.arena?.destroy(); this.audio?.destroy();
     });
     this.connectAdapter();
     if (DEV) console.log('[mwf] started');
     await this.overlay.start();
+  }
+
+  private makeArena(gl: WebGL2RenderingContext): Arena {
+    if (!this.opts.stage) return new PageArena(this.settings, this.overlay.canvas);
+    const id = this.opts.stage;
+    const name = STAGE_LIST.find((s) => s.id === id)?.name ?? id;
+    const files = this.folder();
+    const stage = loadStage(files, id);
+    if (!stage) throw new SetupError(`${name} isn't imported yet. Open the extension options → Import, and import your Melee disc again to add stages.`);
+    return new StageArena(stage.file, stage.data, files, gl);
   }
 
   /** The player's character folder. */
@@ -155,13 +165,13 @@ export class Game {
       const old = this.engine;
       if (old) this.world.remove(old);
       this.engine = this.world.add(new Engine(data), 0);
-      if (this.stage) this.engine.setStage(this.stage.data);
+      if (this.arena) this.engine.setStage(this.arena.data);
       if (old && this.spawned) this.engine.spawn(old.fighter.pos.x, old.fighter.pos.y + 0.5, old.fighter.facing);
     }
     this.engine.plugins = pluginsFor(this.settings);
     this.loadSandbag(files);
     this.audio!.load(files);
-    // The page's scale always comes from Fox, so the others stand next to Fox as they do in the game.
+    // A page's scale always comes from Fox, so the others stand next to Fox as they do in the game.
     const fox = dir === FOX || !files.has(FOX + 'character.json') ? { model, info } : loadModel(files, FOX);
     this.fighterHeight = measureHeight(fox.model, fox.info.modelScale);
   }
@@ -178,62 +188,20 @@ export class Game {
     if (this.sandbag) this.sandbag.setData(data);
     else {
       this.sandbag = this.world.add(new Engine(data));
-      if (this.stage) { this.sandbag.setStage(this.stage.data); if (this.spawned) this.spawnSandbag(); }
+      if (this.arena) { this.sandbag.setStage(this.arena.data); if (this.spawned) this.spawnSandbag(); }
     }
     this.sandbag.plugins = pluginsFor(this.settings).filter((p) => !p.input && !p.render);
     this.sandbag.noDamage = !this.settings.sandbagDamage;
   }
 
-  /**
-   * A place to appear that's in view: on top of a platform on screen, with room above it (so not on a
-   * fixed header or the top of the page), as near `preferX` as possible and otherwise high up. The
-   * point is just above the platform, so the fighter drops onto it. Null when the screen has none.
-   */
-  private visibleSpot(preferX: number): [number, number] | null {
-    const [l, r, b, t] = this.view.viewport();
-    let best: [number, number] | null = null, bestScore = Infinity;
-    for (const s of this.stage!.data.segments) {
-      if ((s.kind !== SegKind.Platform && s.kind !== SegKind.Floor) || s.y0 !== s.y1) continue;
-      if (s.y0 > t - SPAWN_HEADROOM || s.y0 < b + 2) continue;
-      const lo = Math.max(s.x0, l + SPAWN_SIDE) + 3, hi = Math.min(s.x1, r - SPAWN_SIDE) - 3;
-      if (hi < lo) continue;
-      const x = Math.min(hi, Math.max(lo, preferX));
-      const score = Math.abs(x - preferX) + 0.3 * (t - s.y0);
-      if (score < bestScore) { bestScore = score; best = [x, s.y0 + 0.5]; }
-    }
-    return best;
+  private spawnPlayer(): void {
+    const [x, y, facing] = this.arena!.playerSpawn();
+    this.engine!.spawn(x, y, facing);
   }
 
-  /** Where Fox first appears: a platform in view near the top middle of the screen. */
-  private spawnFox(): void {
-    const [l, r, , t] = this.view.viewport();
-    const [x, y] = this.visibleSpot((l + r) / 2) ?? [(l + r) / 2, t - 4];
-    this.engine!.spawn(x, y);
-  }
-
-  /** After a KO Fox drops back onto a platform in view near the middle of the screen. */
-  private foxRespawn(): [number, number] {
-    const [l, r] = this.view.viewport();
-    return this.visibleSpot((l + r) / 2) ?? this.stage!.data.spawn;
-  }
-
-  /** Sandbag first appears beside Fox (on the side with more room), at 0%, facing him. */
   private spawnSandbag(): void {
-    const fp = this.engine!.fighter, [l, r] = this.view.viewport();
-    let side = fp.facing;
-    if (fp.pos.x + side * SANDBAG_GAP > r - SPAWN_SIDE || fp.pos.x + side * SANDBAG_GAP < l + SPAWN_SIDE) side = -side;
-    const [x, y] = this.visibleSpot(fp.pos.x + side * SANDBAG_GAP) ?? [fp.pos.x + side * SANDBAG_GAP, fp.pos.y + 0.5];
-    this.sandbag!.spawn(x, y, x > fp.pos.x ? -1 : 1);
-  }
-
-  /**
-   * After a KO Sandbag comes back near the middle of the screen, not at Fox: if he's standing there,
-   * to one side of him, so the fight can move around the page.
-   */
-  private sandbagRespawn(): [number, number] {
-    const [l, r, , t] = this.view.viewport(), mid = (l + r) / 2, fx = this.engine!.fighter.pos.x;
-    const preferX = Math.abs(mid - fx) >= RESPAWN_AWAY ? mid : fx < mid ? fx + RESPAWN_AWAY : fx - RESPAWN_AWAY;
-    return this.visibleSpot(preferX) ?? [mid, t - 4];
+    const [x, y, facing] = this.arena!.sandbagSpawn(this.engine!.fighter);
+    this.sandbag!.spawn(x, y, facing);
   }
 
   /** Live reload after an override or setting changed (or another character was picked). */
@@ -248,11 +216,10 @@ export class Game {
     this.input.mapping = s.gamepad;
     this.input.setKeyboard(s.keyboard);
     if (s.debug) this.debug.setEnabled(true);
-    this.view.ppu = s.fighterHeightPx / this.fighterHeight;
+    this.arena?.applySettings(s, this.fighterHeight);
     this.audio?.setVolume(s.volume);
     if (this.engine) this.engine.plugins = pluginsFor(s);
     if (this.sandbag) this.sandbag.noDamage = !s.sandbagDamage;
-    if (this.stage) { this.stage.opts = { minSolidPx: s.minSolidPx, minSegmentPx: s.minSegmentPx, maxSegments: s.maxSegments }; this.stage.invalidate(0); }
   }
 
   /**
@@ -287,28 +254,25 @@ export class Game {
 
   /** One engine step (exactly 1/60 s). */
   private step(): void {
-    const e = this.engine!;
+    if (this.paused) return;
+    const e = this.engine!, arena = this.arena!;
     const ts = performance.now();
-    this.stage!.update();
+    arena.update(this.world.fighters.map((f) => f.fighter));
     this.stageMaxMs = Math.max(this.stageMaxMs, performance.now() - ts);
-    this.world.setStage(this.stage!.data);
+    this.world.setStage(arena.data);
     if (!this.spawned) {
-      // Nothing to play until the page is scanned: then Fox and Sandbag appear on platforms in view.
-      if (!this.stage!.ready) return;
+      // Nothing to play until the arena is ready: then the fighters appear.
+      if (!arena.ready) return;
       this.spawned = true;
-      this.spawnFox();
+      this.spawnPlayer();
       if (this.sandbag) this.spawnSandbag();
     }
-    if (this.sandbag) {
-      // Off the screen on any side: back at 0% (sandbagRespawn).
-      const [l, r, b, t] = this.view.viewport(), m = SANDBAG_OFFSCREEN;
-      this.sandbag.blast = [l - m, r + m, b - m, t + m];
-    }
+    if (this.sandbag) this.sandbag.blast = arena.sandbagBounds();
     this.input.sample(this.pad);
     const t0 = performance.now();
     this.world.step([this.pad]);
     this.stepMs = this.stepMs * 0.95 + (performance.now() - t0) * 0.05;
-    if (DEV && e.frame % 300 === 0) { console.log(`[mwf] stats step ${this.stepMs.toFixed(3)} ms, stage worst frame ${this.stageMaxMs.toFixed(2)} ms, last rebuild ${this.stage!.lastScanTotalMs.toFixed(2)} ms, ${this.stage!.data.segments.length} segs`); this.stageMaxMs = 0; }
+    if (DEV && e.frame % 300 === 0) { console.log(`[mwf] stats step ${this.stepMs.toFixed(3)} ms, arena worst frame ${this.stageMaxMs.toFixed(2)} ms, ${arena.stats()}`); this.stageMaxMs = 0; }
     for (const f of this.world.fighters) {
       for (const ev of f.events) {
         if (ev.type === 'sound') this.audio!.play(ev.id, ev.volume, ev.pan);
@@ -319,15 +283,15 @@ export class Game {
   }
 
   private render(): void {
-    const gl = this.gl!, e = this.engine!, fp = e.fighter;
+    const gl = this.gl!, e = this.engine!, fp = e.fighter, arena = this.arena!;
     const c = this.overlay.canvas;
     gl.viewport(0, 0, c.width, c.height);
-    gl.clearColor(0, 0, 0, 0);
+    gl.clearColor(...arena.clearColor);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    arena.projection(this.proj);
+    arena.drawBackground(this.proj);
     if (!this.spawned) return;
-    const [l, r, b, t] = this.view.viewport();
-    ortho(this.proj, l, r, b, t, -100, 100);
-    // Sandbag behind Fox. During hitlag it shakes (the game's model shift, ftCo_80090690).
+    // Sandbag behind the player. During hitlag it shakes (the game's model shift, ftCo_80090690).
     const sb = this.sandbag;
     if (sb && this.sandbagRenderer) {
       sb.updatePose();
@@ -347,14 +311,14 @@ export class Game {
     if (this.effects.draw(e, this.view)) this.quad!.draw(this.effects.canvas);
     const ctx = this.debug.begin();
     if (ctx) {
-      this.debug.drawStage(ctx, this.stage!.data.segments, this.view);
+      this.debug.drawStage(ctx, arena.data.segments, this.view);
       this.drawFighterDebug(ctx, fp);
       if (sb) this.drawFighterDebug(ctx, sb.fighter);
       for (const p of e.plugins) p.render?.(e, ctx, (x, y) => this.view.toClient(x, y));
       this.debug.text(ctx, [
         `${e.data.name}  ${fp.motionName}  frame ${fp.animFrame.toFixed(1)}  ${fp.ga ? 'air' : 'ground'}  jumps ${fp.jumpsUsed}`,
         `pos ${fp.pos.x.toFixed(2)}, ${fp.pos.y.toFixed(2)}  vel ${fp.selfVel.x.toFixed(3)}, ${fp.selfVel.y.toFixed(3)}  gr ${fp.grVel.toFixed(3)}`,
-        `engine step ${this.stepMs.toFixed(3)} ms · stage ${this.stage!.data.segments.length} segs, scan ${this.stage!.lastBuildMs.toFixed(1)} ms/frame`,
+        `engine step ${this.stepMs.toFixed(3)} ms · ${arena.stats()}`,
         `px_per_unit ${this.view.ppu.toFixed(2)} · plugins: ${e.plugins.map((p) => p.id).join(', ') || 'none'}`,
         ...(sb ? [`sandbag ${sb.fighter.motionName} ${sb.fighter.percent.toFixed(1)}%  pos ${sb.fighter.pos.x.toFixed(1)}, ${sb.fighter.pos.y.toFixed(1)}  hitlag ${sb.fighter.hitlag}  hitstun ${sb.fighter.hitstun}`] : []),
       ]);

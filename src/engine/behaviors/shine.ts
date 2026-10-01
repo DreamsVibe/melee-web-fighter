@@ -74,13 +74,16 @@ function turnCheck(e: Engine): boolean {
   return true;
 }
 
+/** ftFx_SpecialLwTurn: the model spins 180° over the turn frames; the facing flips on the way. */
 function turnStep(e: Engine): void {
-  const fp = e.fighter;
+  const fp = e.fighter, frames = e.data.special.reflector_turn_frames;
   fp.mv.shineTurnFrames--;
-  if (fp.cmdVars[0] === 0 && fp.mv.shineTurnFrames <= e.data.special.reflector_turn_frames) {
+  if (fp.cmdVars[0] === 0 && fp.mv.shineTurnFrames <= frames) {
     fp.cmdVars[0] = 1;
     fp.facing = -fp.facing;
   }
+  fp.rootRotY = Math.fround(fp.rootRotY - Math.PI / frames);
+  fp.poseDirty = true;
 }
 
 /** ftFx_SpecialLwHit_Check: after a turn or reflect, end if released, otherwise keep looping. */

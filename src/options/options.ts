@@ -51,14 +51,16 @@ async function init(): Promise<void> {
   settings = await loadSettings();
   const imported = asText(await getFile('characters/fox/character.json'));
   const current = imported && (JSON.parse(imported).formatVersion ?? 0) >= FORMAT_VERSION;
-  // A disc imported before a character was added has no folder for it.
+  // A disc imported before a character or the stages were added has no folder for them.
   const have = new Map(await Promise.all(CHARACTERS.map(async (c) => [c.id, !!(await getFile(`characters/${c.id}/character.json`))] as const)));
-  const missing = CHARACTERS.filter((c) => !have.get(c.id)).map((c) => c.name);
+  const missing: string[] = CHARACTERS.filter((c) => !have.get(c.id)).map((c) => c.name);
+  if (!(await getFile('stages/fd/stage.json'))) missing.push('the stages');
   $('importState').innerHTML = !imported
     ? '<b>Nothing is imported yet:</b> <a href="import.html">import your Melee disc</a> first.'
-    : !current ? '<b>This version needs your disc again</b> (for Captain Falcon): <a href="import.html">import it</a>.'
+    : !current ? '<b>This version needs your disc again</b> (for Captain Falcon and the stages): <a href="import.html">import it</a>.'
       : missing.length ? `<b>Import your disc again to add ${missing.join(' and ')}</b>: <a href="import.html">import it</a>.`
-        : `${CHARACTERS.map((c) => c.name).join(', ')} and Sandbag are imported. <a href="import.html">Re-import or preview</a>.`;
+        : `${CHARACTERS.map((c) => c.name).join(', ')}, Sandbag and the stages are imported. <a href="import.html">Re-import or preview</a>.`;
+  $('openStages').onclick = () => void chrome.tabs.create({ url: chrome.runtime.getURL('stage.html') });
 
   // --- character
   const character = $<HTMLSelectElement>('character');

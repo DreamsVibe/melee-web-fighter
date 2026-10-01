@@ -17,6 +17,8 @@ import { STATES, MS, type SpecialHooks, type StateDef } from './states';
 import { collResolve, fighterNudge, moveIdOf, staleMultiplier } from './hits';
 import { damageExitHitlag, WAIT_REVERSE } from './damage';
 import type { World } from './world';
+import { Ucf } from './ucf';
+import { hitlagSdi, hitlagAsdi } from './hitlag';
 
 const f = Math.fround;
 
@@ -41,7 +43,7 @@ const KEEPS_JAB_WINDOW = (msid: number) => msid >= MS.Wait && msid <= MS.WalkFas
 export function newHitbox(id: number): HitboxState {
   return {
     active: false, id, group: 0, bone: 0, damage: 0, count: 0, size: 0, offset: [0, 0, 0], angle: 0, kbg: 0, bkb: 0, wkb: 0,
-    element: 0, sfxLevel: 0, sfxKind: 0, ground: true, air: true, fighters: true,
+    element: 0, sfxLevel: 0, sfxKind: 0, shieldDamage: 0, ground: true, air: true, fighters: true,
     pos: [0, 0], prevPos: [0, 0], pos3: [0, 0, 0], prevPos3: [0, 0, 0], fresh: true, victims: new Set(), tipVictims: new Set(), contact: [0, 0, 0], overlap: 0,
   };
 }
@@ -58,8 +60,9 @@ function newFighter(data: CharacterData): Fighter {
     cmdVars: [0, 0, 0, 0], throwFlags: 0, allowInterrupt: false, reflecting: false,
     jabWindow: 0, jabCombo: false, jabRapid: false, jabLast: 0, jabPresses: 0,
     smash: { state: Smash.None, frames: 0, hold: 0, rate: 1, sfx: false, damageMul: 1 },
-    rootPos: { x: 0, y: 0, z: 0 }, rootDelta: { x: 0, y: 0, z: 0 }, xRot: NaN,
+    rootPos: { x: 0, y: 0, z: 0 }, rootDelta: { x: 0, y: 0, z: 0 }, xRot: NaN, rootRotY: Math.PI / 2,
     shieldHealth: data.common.shield_start_health ?? 60, lightshield: 0, shielding: false, ghosts: [], ghostRot: [],
+    shieldDamage: 0, shieldHitDamage: 0, shieldHitDir: 1,
     hitboxes: Array.from({ length: 4 }, (_, id) => newHitbox(id)),
     input: { lx: 0, ly: 0, plx: 0, ply: 0, cx: 0, cy: 0, pcx: 0, pcy: 0, trigger: 0, ptrigger: 0, held: 0, pheld: 0, pressed: 0, released: 0 },
     hasPrevInput: false,
@@ -101,6 +104,8 @@ export class Engine implements EngineApi {
   a: Named;
   c: Named;
   pad: PadFloats = emptyFloats();
+  readonly ucf = new Ucf();
+  private rawPad: PadState = { buttons: 0, stickX: 0, stickY: 0, cX: 0, cY: 0, trigL: 0, trigR: 0 };
   private rest: Float32Array;
   private blendLocal: Float32Array;
   private quats: JointQuats;
@@ -184,6 +189,7 @@ export class Engine implements EngineApi {
   /** Back to 0% with no knockback, hitlag or hitstun (a respawn). */
   resetDamage(): void {
     const fp = this.fighter;
+    fp.shieldDamage = fp.shieldHitDamage = 0;
     fp.percent = 0; fp.percentTemp = 0; fp.damageApplied = 0; fp.kbApplied = 0; fp.dealtDamage = 0; fp.damageLog.length = 0;
     fp.tipLog.length = 0; fp.phantomHitlag = 0; fp.phantomFrames = 0; fp.phantomDamage = 0; fp.phantomSource = null; fp.hitlagMul = 1;
     fp.kbVel.x = fp.kbVel.y = 0; fp.groundKbVel = 0; fp.hitlag = 0; fp.inHitlag = false; fp.allowSdi = false; fp.postHitlag = null;
@@ -204,24 +210,33 @@ export class Engine implements EngineApi {
   }
 
   setStage(stage: StageData): void {
+    // The same stage again (a Melee stage passes the same one every frame): nothing moved.
+    if (stage === this.stage) return;
     const fp = this.fighter;
+    // A line's counterpart in the new stage: the same place among the lines of its group and kind (a
+    // page element has one line; a stage's collision joint has many).
+    const prev = this.stage;
+    const counterpart = (old: Segment, extra: (s: Segment) => boolean = () => true): Segment | null => {
+      const like = (s: Segment) => s.group === old.group && s.kind === old.kind;
+      const nth = Math.max(0, prev.segments.filter(like).indexOf(old));
+      return stage.segments.filter((s) => like(s) && extra(s))[nth] ?? null;
+    };
     // Moving platforms: carry a grounded fighter with the element he stands on (mpGetSpeed).
     if (fp.ga === GA.Ground && fp.floor) {
       const old = fp.floor;
-      const moved = stage.segments.find((s) => s.group === old.group && s.kind === old.kind);
+      const moved = counterpart(old);
       if (moved) {
         const dx = moved.x0 - old.x0, dy = moved.y0 - old.y0;
         if (dx || dy) { fp.pos.x = f(fp.pos.x + dx); fp.pos.y = f(fp.pos.y + dy); }
         fp.floor = moved;
       } else fp.floor = null;
     }
-    if (fp.floorSkip) fp.floorSkip = stage.segments.find((s) => s.group === fp.floorSkip!.group && s.kind === fp.floorSkip!.kind) ?? null;
+    if (fp.floorSkip) fp.floorSkip = counterpart(fp.floorSkip);
     // The ledge the fighter hangs from moves with its element; if the element (or its ledge) went,
     // the ledge states see no ledge and fall (mpLib_80054ED8).
     if (fp.ledge) {
-      const old = fp.ledge.seg, bit = fp.ledge.side === 1 ? 1 : 2;
-      const seg = stage.segments.find((s) => s.group === old.group && s.kind === old.kind && (s.ledges & bit));
-      fp.ledge = seg ? { seg, side: fp.ledge.side } : null;
+      const bit = fp.ledge.side === 1 ? 1 : 2, seg = counterpart(fp.ledge.seg);
+      fp.ledge = seg && seg.ledges & bit ? { seg, side: fp.ledge.side } : null;
     }
     this.stage = stage;
   }
@@ -247,6 +262,8 @@ export class Engine implements EngineApi {
     this.events.length = 0;
     for (const p of this.plugins) p.input?.(this, pad);
     padToFloats(pad, this.pad);
+    Object.assign(this.rawPad, pad);
+    this.ucf.cardinals(pad, this.pad);
     this.frame++;
     // Attributes for this frame (the moon gravity plugin edits a copy, never the data).
     Object.assign(this.a, this.data.attrs);
@@ -282,7 +299,9 @@ export class Engine implements EngineApi {
   /** Fighter_8006D10C: hitlag ends (post_hitlag_cb, then unfreeze). */
   exitHitlag(): void {
     const fp = this.fighter;
+    hitlagAsdi(this);
     if (fp.postHitlag === 'damage') damageExitHitlag(this);
+    fp.postHitlag = null;
     fp.inHitlag = false;
   }
 
@@ -387,6 +406,7 @@ export class Engine implements EngineApi {
   // ---- Fighter_procInput
   procInput(): void {
     const fp = this.fighter, c = this.c, inp = fp.input, t = fp.timers, k = fp.counters;
+    this.ucf.record(this.rawPad);
     const pad = this.pad;
     if (!fp.hasPrevInput) {
       inp.plx = inp.lx; inp.ply = inp.ly; inp.pcx = inp.cx; inp.pcy = inp.cy; inp.ptrigger = inp.trigger; inp.pheld = inp.held;
@@ -442,6 +462,7 @@ export class Engine implements EngineApi {
     // The L-cancel counter (fp->x67F): frames since the last press of L/R/analog/Z.
     if (pr & PAD_LR) k.lr = 0; else if (k.lr < 255) k.lr++;
     if (pr & (BTN.L | BTN.R)) { k.lrDigitalPrev = k.lrDigital; k.lrDigital = 0; } else if (k.lrDigital < 255) k.lrDigital++;
+    this.ucf.afterInput(fp);
     if (fp.inHitlag) return;
     this.smashChargeInput();
     // Fighter_UnkIncrementCounters_8006ABEC
@@ -469,7 +490,7 @@ export class Engine implements EngineApi {
     const fp = this.fighter, c = this.c;
     this.lastPos.x = fp.pos.x; this.lastPos.y = fp.pos.y;
     fp.prevPos.x = fp.pos.x; fp.prevPos.y = fp.pos.y;
-    if (fp.inHitlag) return;
+    if (fp.inHitlag) { hitlagSdi(this); return; }
     if (fp.ledgeCooldown) fp.ledgeCooldown -= 1;
     this.def().phys?.(this);
     // Knockback velocity decays: in the air along its own direction (Sandbag per axis, by its own
@@ -534,8 +555,8 @@ export class Engine implements EngineApi {
     // ftPartSetRotX on XRotN (Firefox points Fox along his flight).
     const xRotN = this.data.parts[2];
     if (!Number.isNaN(fp.xRot) && xRotN !== undefined) fp.local[xRotN * 9] = fp.xRot;
-    // Root: facing rotation (ftPartSetRotY(fp, 0, pi/2 * facing)) and model scale.
-    fp.local[1] = Math.PI / 2 * fp.facing;
+    // Root: its Y rotation (set from the facing on each motion change) and model scale.
+    fp.local[1] = fp.rootRotY;
     const s = this.data.modelScale;
     fp.local[3] = fp.local[4] = fp.local[5] = s;
     worldMatrices(this.data.skeleton, fp.local, fp.world, this.scratch, null, this.quats);
@@ -626,6 +647,7 @@ export class Engine implements EngineApi {
     fp.floorSkip = null;
     fp.lstickAngle = 0;
     fp.xRot = NaN;
+    fp.rootRotY = Math.PI / 2 * fp.facing; // ftPartSetRotY(fp, 0, M_PI_2 * facing_dir)
     fp.smash.state = Smash.None;
     if (!KEEPS_JAB_WINDOW(msid)) fp.jabWindow = 0;
     if (!(flags & MF.KeepGhosts)) fp.ghosts.length = fp.ghostRot.length = 0;
@@ -689,6 +711,7 @@ export class Engine implements EngineApi {
         h.offset[0] = c.f.z; h.offset[1] = c.f.y; h.offset[2] = c.f.x;
         h.angle = c.f.angle; h.kbg = c.f.kbg; h.bkb = c.f.bkb; h.wkb = c.f.wkb; h.element = c.f.element;
         h.sfxLevel = c.f.sfx_level; h.sfxKind = c.f.sfx_kind;
+        h.shieldDamage = c.f.shield;
         h.ground = !!c.f.ground; h.air = !!c.f.air; h.fighters = true;
         break;
       }

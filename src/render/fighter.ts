@@ -15,6 +15,9 @@ uniform highp sampler2D uPalette;
 uniform mat4 uModel;
 uniform mat4 uViewProj;
 uniform vec2 uUVScale;
+uniform vec2 uUVOffset;
+uniform float uUVRotation;
+uniform bool uEnvironment;
 out vec3 vNrm;
 out vec2 vUV;
 mat4 bone(uint b) {
@@ -28,7 +31,9 @@ void main() {
   mat4 m = bone(aBones.x) * aWeights.x + bone(aBones.y) * aWeights.y + bone(aBones.z) * aWeights.z + bone(aBones.w) * aWeights.w;
   vec4 p = uModel * m * vec4(aPos, 1.0);
   vNrm = normalize(mat3(uModel) * mat3(m) * aNrm);
-  vUV = aUV * uUVScale;
+  vec2 uv = (uEnvironment ? vNrm.xy * vec2(0.5, -0.5) + 0.5 : aUV) - uUVOffset;
+  float c = cos(uUVRotation), s = sin(uUVRotation);
+  vUV = vec2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y) * uUVScale;
   gl_Position = uViewProj * p;
 }`;
 
@@ -44,6 +49,7 @@ uniform float uAlpha;
 uniform bool uTranslucent;
 uniform vec4 uTint;
 uniform float uGhost;
+uniform bool uUnlit;
 out vec4 frag;
 void main() {
   vec4 t = uHasTex ? texture(uTex, vUV) : vec4(1.0);
@@ -52,7 +58,7 @@ void main() {
   float lambert = max(dot(n, normalize(vec3(0.35, 0.55, 0.75))), 0.0);
   float rim = pow(1.0 - abs(n.z), 3.0) * 0.15;
   vec3 light = uAmbient.rgb * 0.55 + uDiffuse.rgb * (0.35 + 0.75 * lambert) + rim;
-  vec3 c = t.rgb * light;
+  vec3 c = t.rgb * (uUnlit ? uDiffuse.rgb : light);
   c = mix(c, uTint.rgb, uTint.a);
   frag = vec4(c, (uTranslucent ? t.a * uAlpha * uDiffuse.a : 1.0) * uGhost);
 }`;
@@ -97,7 +103,7 @@ export class FighterRenderer {
 
   constructor(private gl: WebGL2RenderingContext, private model: FighterModel) {
     this.program = compile(gl, VS, FS);
-    for (const n of ['uPalette', 'uModel', 'uViewProj', 'uUVScale', 'uTex', 'uHasTex', 'uDiffuse', 'uAmbient', 'uAlpha', 'uTranslucent', 'uTint', 'uGhost']) {
+    for (const n of ['uPalette', 'uModel', 'uViewProj', 'uUVScale', 'uUVOffset', 'uUVRotation', 'uEnvironment', 'uUnlit', 'uTex', 'uHasTex', 'uDiffuse', 'uAmbient', 'uAlpha', 'uTranslucent', 'uTint', 'uGhost']) {
       this.u[n] = gl.getUniformLocation(this.program, n);
     }
     const { mesh } = model;
@@ -194,7 +200,13 @@ export class FighterRenderer {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap(m.wrap[0]));
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap(m.wrap[1]));
       }
-      gl.uniform2f(this.u.uUVScale, m.uvScale[0], m.uvScale[1]);
+      const sx = m.textureScale?.[0] ?? 1, sy = m.textureScale?.[1] ?? 1;
+      const ux = Math.abs(sx) < 1e-7 ? 0 : m.uvScale[0] / sx, uy = Math.abs(sy) < 1e-7 ? 0 : m.uvScale[1] / sy;
+      gl.uniform2f(this.u.uUVScale, ux, uy);
+      gl.uniform2f(this.u.uUVOffset, m.uvOffset?.[0] ?? 0, (m.uvOffset?.[1] ?? 0) + (m.textureScale && m.wrap[1] === 2 && uy ? 1 / uy : 0));
+      gl.uniform1f(this.u.uUVRotation, m.uvRotation ?? 0);
+      gl.uniform1i(this.u.uEnvironment, m.environment ? 1 : 0);
+      gl.uniform1i(this.u.uUnlit, m.unlit ? 1 : 0);
       gl.uniform4fv(this.u.uDiffuse, m.diffuse);
       gl.uniform4fv(this.u.uAmbient, m.ambient);
       gl.uniform1f(this.u.uAlpha, m.alpha);

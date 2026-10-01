@@ -7,6 +7,8 @@
 import type { Engine } from './engine';
 import { MF, PAD_LR } from './engine';
 import { BTN } from './pad';
+import { isOnPlatform } from './collision';
+import { atStickRim } from './ucf';
 import { def, MS } from './statedefs';
 import { groundAttackPhysics, groundFriction, groundRootMotion, groundDeaccel, selfFromGround } from './physics';
 import {
@@ -498,6 +500,23 @@ function guardOffEnter(e: Engine): void {
   e.playSound(127);
 }
 
+/** ftCo_80092F2C: shield stun and pushback; exposes shield hitlag to UCF's SDI fix. */
+export function guardHitEnter(e: Engine): void {
+  const fp = e.fighter, c = e.c, damage = fp.shieldHitDamage;
+  const healthMul = 1 - (fp.lightshield * (c.shield_damage_full - c.shield_damage_light) + c.shield_damage_light);
+  fp.shieldHealth = f(Math.max(0, fp.shieldHealth - f(c.shield_damage_mul * f(fp.shieldDamage * healthMul) + c.shield_damage_add)));
+  if (!fp.shieldHealth) { guardOffEnter(e); return; }
+  const stun = f(c.shield_stun_mul * f(damage * (1 - (fp.lightshield * (c.shield_stun_full - c.shield_stun_light) + c.shield_stun_light))) + c.shield_stun_add);
+  const push = Math.min(c.shield_push_max, f(f(stun * c.shield_push_mul) * c.shield_push_full_mul));
+  e.changeMotion(MS.GuardSetOff, MF.None, 0, 1);
+  fp.shielding = true;
+  fp.mv.guardStun = stun;
+  fp.grVel = f(push * fp.shieldHitDir);
+  fp.selfVel.x = fp.grVel;
+  fp.timers.lxTimer = 254;
+  fp.postHitlag = 'shield';
+}
+
 /** ftCo_800925A4: the shield shrinks while held, faster at full press. Returns true when it breaks. */
 function shieldDecay(e: Engine): boolean {
   const fp = e.fighter, c = e.c;
@@ -532,7 +551,16 @@ function guardReleaseCheck(e: Engine): boolean {
 /** ftCo_8009980C: spot dodge out of shield (stick or c-stick down). */
 function spotdodgeCheck(e: Engine): boolean {
   const fp = e.fighter, c = e.c;
-  if ((fp.input.ly <= c.spotdodge_stick_threshold && fp.timers.lyTimer < c.spotdodge_stick_window) || fp.input.cy <= c.spotdodge_stick_threshold) {
+  let threshold = c.spotdodge_stick_threshold;
+  // UCF's shield-drop patch (800998A4): after the sideways roll window expires,
+  // allow gate diagonals above -0.8 to reach Pass instead of accidentally dodging.
+  // Its rim check restores integer pad units with a two-unit tolerance on each axis.
+  // https://github.com/project-slippi/slippi-ssbm-asm/blob/master/External/UCF%200.84/UCF/UCF%20Shield%20Drop.asm
+  if (e.ucf.enabled && fp.input.cy > c.spotdodge_stick_threshold && fp.timers.lxTimer >= c.roll_stick_window
+      && fp.input.ly > f(-0.8) && isOnPlatform(fp)) {
+    if (atStickRim(fp.input.lx, fp.input.ly)) threshold = f(-0.8);
+  }
+  if ((fp.input.ly <= threshold && fp.timers.lyTimer < c.spotdodge_stick_window) || fp.input.cy <= c.spotdodge_stick_threshold) {
     escapeNEnter(e);
     return true;
   }
@@ -569,7 +597,8 @@ function jumpOutOfShield(e: Engine): boolean {
 
 /** ftCo_8009A080: shield drop through a platform. */
 function shieldDropCheck(e: Engine): boolean {
-  if ((e.fighter.input.held & PAD_LR) && passInput(e)) { passEnter(e); return true; }
+  if ((e.fighter.input.held & PAD_LR) && isOnPlatform(e.fighter)
+      && (passInput(e) || e.ucf.enabled && e.ucf.highDropFrames > 1)) { passEnter(e); return true; }
   return false;
 }
 
@@ -611,6 +640,20 @@ def({
 def({
   id: MS.GuardOff, name: 'GuardOff', move: 'GuardOff', anim: toWaitWhenDone,
   iasa(e) { if (!spotdodgeCheck(e)) jumpOutOfShield(e); },
+  phys: frictionPhys, coll: collFallOff,
+});
+
+def({
+  id: MS.GuardSetOff, name: 'GuardSetOff', move: 'Guard', poseOnly: true,
+  anim(e) {
+    const fp = e.fighter;
+    fp.mv.guardStun -= 1;
+    if (fp.mv.guardStun <= 0) {
+      guardEnter(e);
+      fp.mv.guardMinHold = 0; fp.mv.guardReleased = 0;
+      guardReleaseCheck(e);
+    }
+  },
   phys: frictionPhys, coll: collFallOff,
 });
 

@@ -35,8 +35,10 @@ export class InputManager {
   /** Which source drove the last sample, for the debug display. */
   source = 'none';
   onKey: ((code: string) => void) | null = null;
+  /** Off while a menu has the keyboard (the stage page's stage select). */
+  enabled = true;
   private readonly down = (e: KeyboardEvent) => {
-    if (isEditable(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!this.enabled || isEditable(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
     if (this.keyMap.has(e.code)) {
       this.keys.add(e.code);
       this.latched.add(e.code);

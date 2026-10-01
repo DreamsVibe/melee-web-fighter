@@ -19,7 +19,7 @@ damage adds up and knocks it further, strong hits send it tumbling. When it leav
 comes back at 0%. Fox's and Captain Falcon's movesets and their hits on Sandbag are checked frame by
 frame against the real game.
 
-**Nothing from the game is included.** The extension is code only (about 280 KB). Every character's
+**Nothing from the game is included.** The extension is code only (about 310 KB). Every character's
 models, animations, sounds and moves are read in your browser from **your own** Melee disc
 image and stored locally. Nothing is uploaded anywhere.
 
@@ -78,12 +78,38 @@ Illusion/Phantasm, Firefox/Fire Bird (aimable) and Reflector with multishine and
 Falcon adds Falcon Punch, Raptor Boost, Falcon Dive and Falcon Kick. Falcon Dive doesn't grab yet (no
 grabs catch anyone so far).
 
+**Shield drops.** Hold shield on a platform, angle the stick sideways without rolling, then
+rotate down to the diagonal notch. The UCF 0.84 shield-drop adjustments make this reliable across
+GameCube controllers. A straight-down tap still spot dodges; solid floors cannot be dropped through.
+
+**UCF 0.84 is enabled by default** for every character: dashback, dash/dashback out of crouch,
+tumble escape, 1.0 cardinals, standard and high-notch shield drops, and first-frame SDI/shield SDI.
+Shield hits now block attacks, wear down the shield and cause shield stun. Existing character
+folders work without re-importing; new imports read the added hitlag constants from the disc.
+
 **Ledges.** Fall past the top corner of an image, button or box while facing it and you catch the
 ledge, as in Melee: you're briefly intangible and get your double jump back. From the ledge, push
 toward the page or tilt up to climb, press A or B to attack, L or R to roll, jump to jump off, and
 push away or down to let go. Over 100% the getups are the slow ones, and after about 10 seconds of
 hanging you drop. Hold down to fall past a ledge without catching it. Text lines have no ledges,
 like Melee's platforms.
+
+## Stages
+
+Press **Alt+Shift+M** anywhere (or use **Play on a Melee stage** in the settings) to open the stage
+select. Choosing a stage opens it in its own tab, with your fighter and Sandbag on their starting
+points, the stage's blast zones, and a camera that follows the fight. **Esc** or Alt+Shift+M brings
+the menu back (the game pauses), and it lets you switch characters too.
+
+**Final Destination and Battlefield** are playable: their collision, spawn points, blast zones and
+models come from your disc, like the characters. Battlefield includes its three pass-through
+platforms, both ledges, animated stage structures and scrolling textures. Its background cycles
+between three scenes with an animated transition. Opening the menu pauses the scenery too.
+The background's particle scripts and the GameCube's full material pipeline aren't emulated, so
+some effects differ from Melee. Final Destination's scenery is still static.
+
+Dream Land, Yoshi's Story, Fountain of Dreams and Pokémon Stadium are listed and come later. If
+Battlefield says **Import your disc again**, reload the extension and re-import your disc to add it.
 
 ## Using a GameCube controller (Windows, optional)
 
@@ -192,7 +218,7 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
 ## Development
 
 * `npm install`, then `npm run build` builds into `extension/` and prints a size report against the
-  300 KB budget (add `--dev` for sourcemaps; `npm run watch` rebuilds on save). `extension/` is
+  320 KB budget (add `--dev` for sourcemaps; `npm run watch` rebuilds on save). `extension/` is
   committed so people can install without building: rebuild before you commit source changes.
 * `npm run typecheck` runs the TypeScript checks.
 * `npm test` runs the Node tests.
@@ -230,8 +256,10 @@ moon using only those hooks. Register a plugin in `src/plugins/index.ts`.
 * `node tools/e2e.mjs <folder>` checks the extension end to end in Chrome: it loads a copy of
   `extension/`, imports your disc, drops Fox onto a test page, hits Sandbag, shoots, switches to
   Falco and saves screenshots (`CHARACTER=falco` or `CHARACTER=captain` starts as that character).
+  Use a dev build with `SCENARIO=stage STAGE=battlefield` (environment variables) to check Battlefield,
+  its menu/pause behavior and the background transition. Test profiles and images belong in `.cache/`.
 * `NOTES.md` has the research notes (formats, offsets, decomp functions) and the list of deviations.
 
 ## Contributors
 
-* [kream-cheese](https://github.com/kream-cheese): Falco, and ledges to catch and hang from.
+* [kream-cheese](https://github.com/kream-cheese): Falco, ledges to catch and hang from, Final Destination and Battlefield, UCF 0.84, and shields and SDI.

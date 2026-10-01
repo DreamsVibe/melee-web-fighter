@@ -35,6 +35,14 @@ export async function charData(disc: Disc, id: string): Promise<CharacterData> {
 /** Ft_Kind → character id, for reference traces (their `kind` column). */
 export const KIND_IDS: Record<number, string> = { 1: 'fox', 2: 'captain', 22: 'falco' };
 
+/** A stage converted from the disc (stages/<id>/). */
+export async function stageData(disc: Disc, id: string) {
+  const { loadStage } = await import('../src/engine/load');
+  const s = loadStage(effectiveFiles(new Map(await foxFolder(disc))), id);
+  if (!s) throw new Error(`stage ${id} was not converted`);
+  return s;
+}
+
 export async function sandbagData(disc: Disc): Promise<CharacterData> {
   return loadCharacter(effectiveFiles(new Map(await foxFolder(disc))), 'characters/sandbag/');
 }

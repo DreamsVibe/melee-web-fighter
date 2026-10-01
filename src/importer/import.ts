@@ -1,4 +1,4 @@
-// Importer page: pick the disc, verify it, convert every character (pipeline.ts CHARACTERS), store the folders.
+// Importer page: pick the disc, verify it, convert every character (pipeline.ts CHARACTERS), Sandbag and the stages, store the folders.
 import { Disc, DiscError } from './disc';
 import { runImport, CHARACTERS } from './pipeline';
 
@@ -47,7 +47,7 @@ startBtn.addEventListener('click', async () => {
       say(text);
     }, (line) => { log.textContent += line + '\n'; log.scrollTop = log.scrollHeight; });
     progress.value = 1;
-    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${NAMES} take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
+    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${NAMES.replace(" and ", ", ")}, Final Destination and Battlefield take ${(result.bytes / 2 ** 20).toFixed(2)} MB in ${result.files} files.`);
     await showPreview();
   } catch (err) {
     console.error(err);
@@ -112,8 +112,9 @@ import('../shared/db').then(async ({ getFile, asText, FORMAT_VERSION }) => {
   else {
     const missing = [];
     for (const c of CHARACTERS) if (!(await getFile(`characters/${c.id}/character.json`))) missing.push(c.name);
+    if (!(await getFile('stages/fd/stage.json'))) missing.push('the stages');
     if (missing.length) say(`An older import was found: import your disc again to add ${missing.join(' and ')}.`);
-    else say(`${NAMES} are already imported. Import again to refresh them.`);
+    else say(`${NAMES} and the stages are already imported. Import again to refresh them.`);
   }
   await showPreview();
 });

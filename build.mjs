@@ -11,7 +11,7 @@ import { join, relative } from 'node:path';
 const args = new Set(process.argv.slice(2));
 const dev = args.has('--dev') || args.has('--watch');
 const out = 'extension';
-const BUDGET = 300 * 1024;
+const BUDGET = 320 * 1024;
 
 const entries = {
   background: 'src/background.ts',
@@ -19,6 +19,7 @@ const entries = {
   import: 'src/importer/import.ts',
   bridge: 'src/bridge/bridge.ts',
   options: 'src/options/options.ts',
+  stage: 'src/stage/stage-page.ts',
 };
 
 function copyStatic() {

@@ -271,7 +271,13 @@ export function damageFallEnter(e: Engine): void {
 
 def({
   id: DMG.DamageFall, name: 'DamageFall', move: 'DamageFall',
-  iasa(e) { airIasa(e); },
+  iasa(e) {
+    if (airIasa(e)) return;
+    const fp = e.fighter, c = e.c;
+    const original = fp.timers.lxTimer < c.damagefall_drift_window;
+    const ucf = fp.timers.lxTimer === 1 && Math.abs(fp.input.plx) < c.damagefall_drift_threshold && e.ucf.fastX();
+    if (Math.abs(fp.input.lx) >= c.damagefall_drift_threshold && (original || ucf)) fallEnter(e);
+  },
   phys(e) { airPhysics(e.fighter, e.a, e.c, (id) => e.playSound(id)); },
   // ft_8008370C: a tumble can catch a ledge.
   coll(e) { if (landed(e)) downBoundEnter(e); else ledgeCatchCheck(e, 'facing'); },

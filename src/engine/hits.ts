@@ -7,6 +7,7 @@
 import type { Engine } from './engine';
 import { GA, type DamageEntry, type Fighter, type HitboxState, type HurtboxDef } from './types';
 import { enterDamage } from './damage';
+import { guardHitEnter, shieldRadius } from './groundmoves';
 
 const f = Math.fround;
 const DEG = Math.PI / 180;
@@ -90,6 +91,8 @@ export function fighterNudge(e: Engine, all: Engine[]): number {
     if (o === e) { selfSeen = true; continue; }
     const of = o.fighter;
     if (of.ga !== GA.Ground || !of.floor || !fp.floor || of.floor.group !== fp.floor.group) continue;
+    // One map collision group can contain the main floor and all three Battlefield platforms.
+    if (Math.abs(of.floor.y0 - fp.floor.y0) > 0.01) continue;
     const d = f(f(ox * fp.facing + fp.pos.x) - f(o.data.push[0] * of.facing + of.pos.x));
     if (Math.abs(d) < w + o.data.push[1]) {
       const push = e.c.push_speed;
@@ -217,10 +220,29 @@ export function attackColl(victim: Engine, all: Engine[]): void {
     }
     return null;
   };
+  const shieldHit = (h: HitboxState, attacker: Engine, group: HitboxState[], id: number, instance: number, item: boolean): boolean => {
+    const vf = victim.fighter;
+    if (!vf.shielding) return false;
+    const [x, y] = victim.jointPoint(victim.data.shieldJoint, 0, 0, 0);
+    const center = [x, y, 0], identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    if (!capsuleTest(h, center, center, shieldRadius(victim), identity, h.size, 1)) return false;
+    for (const o of group) if (o.active && o.group === h.group) o.victims.add(victim);
+    const damage = Math.trunc(h.damage) || (h.damage > 0 ? 1 : 0);
+    vf.shieldDamage += Math.max(0, damage + h.shieldDamage);
+    if (damage > vf.shieldHitDamage) {
+      vf.shieldHitDamage = damage;
+      vf.shieldHitDir = vf.pos.x >= attacker.fighter.pos.x ? 1 : -1;
+    }
+    if (!item) attacker.fighter.dealtDamage = Math.max(attacker.fighter.dealtDamage, damage);
+    recordStale(attacker.fighter, id, instance);
+    victim.playSound(128);
+    return true;
+  };
   for (const attacker of all) {
     if (attacker === victim) continue;
     for (const h of attacker.fighter.hitboxes) {
       if (!canHit(h, victim)) continue;
+      if (shieldHit(h, attacker, attacker.fighter.hitboxes, attacker.fighter.attackId, attacker.fighter.attackInstance, false)) continue;
       const hurt = hit(h);
       if (hurt && h.element === ELEMENT_INERT) { attacker.fighter.detected = victim; continue; }
       if (hurt && registerHit(attacker, h, victim, hurt, a, b, attacker.fighter.pos.x, 0, attacker.fighter.hitboxes, attacker.fighter.attackId, attacker.fighter.attackInstance, false)) {
@@ -236,6 +258,7 @@ export function attackColl(victim: Engine, all: Engine[]): void {
       if (p.dead) continue;
       for (const h of p.hitboxes) {
         if (!canHit(h, victim)) continue;
+        if (shieldHit(h, attacker, p.hitboxes, p.attackId, p.attackInstance, true)) { p.hit = true; continue; }
         const hurt = hit(h);
         if (hurt && registerHit(attacker, h, victim, hurt, a, b, p.x, p.vx, p.hitboxes, p.attackId, p.attackInstance, true) && !invincible(victim.fighter)) p.hit = true;
       }
@@ -246,6 +269,7 @@ export function attackColl(victim: Engine, all: Engine[]): void {
       if (img.dead) continue;
       for (const h of img.hitboxes) {
         if (!canHit(h, victim)) continue;
+        if (shieldHit(h, attacker, img.hitboxes, img.attackId, img.attackInstance, true)) continue;
         const hurt = hit(h);
         if (hurt) registerHit(attacker, h, victim, hurt, a, b, img.x, 0, img.hitboxes, img.attackId, img.attackInstance, true);
       }
@@ -389,6 +413,9 @@ export function collResolve(e: Engine): void {
     calcKnockback(e);
     enterDamage(e);
     hitlagFrom = fp.damageApplied;
+  } else if (fp.shieldHitDamage) {
+    hitlagFrom = fp.shieldHitDamage;
+    guardHitEnter(e);
   } else if (phantomKb) {
     hitlagFrom = fp.phantomHitlag;
     phantom = true;
@@ -417,6 +444,7 @@ export function collResolve(e: Engine): void {
   }
   fp.percentTemp = 0; fp.damageApplied = 0; fp.kbApplied = 0; fp.dealtDamage = 0; fp.damageLog.length = 0;
   fp.tipLog.length = 0; fp.phantomHitlag = 0; fp.hitlagMul = 1;
+  fp.shieldDamage = fp.shieldHitDamage = 0;
   for (const p of e.projectiles) if (p.hit) p.dead = true;
 }
 

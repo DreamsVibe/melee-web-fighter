@@ -1,6 +1,7 @@
 // Node test runner: `npm test`. Tests that need disc data read the user's own disc image from
 // MELEE_ISO (or a .iso/.ciso at the repo root); nothing from the disc is stored in the repo.
-import { openAsBlob, readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync } from 'node:fs';
+import { openDiscFile } from '../tools/disc-file';
 
 import { Disc } from '../src/importer/disc';
 import { tests } from './suite';
@@ -9,7 +10,7 @@ async function findDisc(): Promise<Disc | null> {
   const candidates = [process.env.MELEE_ISO, ...readdirSync('.').filter((f) => /\.(c?iso|gcm)$/i.test(f)), 'C:/melee-unlocked/melee.iso'].filter(Boolean) as string[];
   for (const c of candidates) {
     if (!existsSync(c)) continue;
-    try { return await Disc.open(await openAsBlob(c)); } catch (e) { console.warn(`skipping ${c}: ${(e as Error).message}`); }
+    try { return await Disc.open(await openDiscFile(c)); } catch (e) { console.warn(`skipping ${c}: ${(e as Error).message}`); }
   }
   return null;
 }
@@ -32,4 +33,3 @@ for (const t of tests) {
 }
 console.log(`\n${tests.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`);
 process.exitCode = failed ? 1 : 0;
-

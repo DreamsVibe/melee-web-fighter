@@ -2,7 +2,17 @@
 // with y down. One scale, px_per_unit, and a flip. Page coordinates are document-relative, so
 // scrolling moves the camera, not the stage.
 
-export class View {
+/** What the effects and the debug overlay need of a view: its scale, bounds and projection to CSS pixels. */
+export interface ViewLike {
+  /** CSS pixels per Melee unit. */
+  readonly ppu: number;
+  /** The visible area in Melee units: [left, right, bottom, top]. */
+  viewport(): [number, number, number, number];
+  /** Viewport-relative CSS pixels of a Melee point. */
+  toClient(x: number, y: number): [number, number];
+}
+
+export class View implements ViewLike {
   /** CSS pixels per Melee unit. */
   ppu = 7;
 

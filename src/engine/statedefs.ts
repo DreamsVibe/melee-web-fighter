@@ -28,7 +28,7 @@ export const MS = {
   AttackS4Hi: 58, AttackS4HiS: 59, AttackS4S: 60, AttackS4LwS: 61, AttackS4Lw: 62, AttackHi4: 63, AttackLw4: 64,
   AttackAirN: 65, AttackAirF: 66, AttackAirB: 67, AttackAirHi: 68, AttackAirLw: 69,
   LandingAirN: 70, LandingAirF: 71, LandingAirB: 72, LandingAirHi: 73, LandingAirLw: 74,
-  GuardOn: 178, Guard: 179, GuardOff: 180, GuardReflect: 182, Catch: 212, CatchDash: 214,
+  GuardOn: 178, Guard: 179, GuardOff: 180, GuardSetOff: 181, GuardReflect: 182, Catch: 212, CatchDash: 214,
   EscapeF: 233, EscapeB: 234, EscapeN: 235, EscapeAir: 236, Pass: 244, AppealSR: 264, AppealSL: 265,
 } as const;
 
